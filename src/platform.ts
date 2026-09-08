@@ -104,6 +104,7 @@ class YandexPlatformAdapter implements PlatformAdapter {
   private authenticated = false
   private wantsGameplay = false
   private platformPaused = false
+  private rewardedRequest: Promise<boolean> | null = null
 
   constructor(private readonly sdk: YandexSdk) {
     this.locale = localeFrom(sdk.environment?.i18n?.lang)
@@ -129,6 +130,14 @@ class YandexPlatformAdapter implements PlatformAdapter {
     this.wantsGameplay = active
     if (active && !this.platformPaused) this.sdk.features?.GameplayAPI?.start()
     else this.sdk.features?.GameplayAPI?.stop()
+  }
+
+  private pauseForAd(): void {
+    this.sdk.features?.GameplayAPI?.stop()
+  }
+
+  private resumeAfterAd(): void {
+    if (this.wantsGameplay && !this.platformPaused) this.sdk.features?.GameplayAPI?.start()
   }
 
   async requestFullscreen(): Promise<void> {
@@ -181,18 +190,38 @@ class YandexPlatformAdapter implements PlatformAdapter {
   }
 
   showRewarded(): Promise<boolean> {
-    if (!this.sdk.adv) return Promise.resolve(false)
-    return new Promise((resolve) => {
+    if (this.rewardedRequest) return this.rewardedRequest
+    const adv = this.sdk.adv
+    if (!adv) return Promise.resolve(false)
+
+    // Reserve the request before the SDK runs: it may invoke its callbacks
+    // synchronously, and repeated taps must still map to one voluntary video.
+    const request = Promise.resolve().then(() => new Promise<boolean>((resolve) => {
       let rewarded = false
-      this.sdk.adv?.showRewardedVideo({
-        callbacks: {
-          onOpen: () => this.gameplay(false),
-          onRewarded: () => { rewarded = true },
-          onClose: () => resolve(rewarded),
-          onError: () => resolve(false)
-        }
-      })
+      let settled = false
+      const finish = (value: boolean) => {
+        if (settled) return
+        settled = true
+        this.resumeAfterAd()
+        resolve(value)
+      }
+      try {
+        adv.showRewardedVideo({
+          callbacks: {
+            onOpen: () => this.pauseForAd(),
+            onRewarded: () => { rewarded = true },
+            onClose: () => finish(rewarded),
+            onError: () => finish(false)
+          }
+        })
+      } catch {
+        finish(false)
+      }
+    }))
+    this.rewardedRequest = request.finally(() => {
+      this.rewardedRequest = null
     })
+    return this.rewardedRequest
   }
 
   showInterstitial(): Promise<void> {

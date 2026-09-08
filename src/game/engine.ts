@@ -48,11 +48,21 @@ export function createGame(mode: GameMode, challengeId: string | null = null): G
   return refillPieces(state)
 }
 
+function isBoardPoint(point: Point): boolean {
+  return Number.isInteger(point.x) && Number.isInteger(point.y)
+    && point.x >= 0 && point.x < BOARD_SIZE
+    && point.y >= 0 && point.y < BOARD_SIZE
+}
+
+function isOccupiedPoint(board: Cell[][], point: Point): boolean {
+  return isBoardPoint(point) && board[point.y][point.x] !== 'empty'
+}
+
 export function canPlace(board: Cell[][], piece: Piece, origin: Point): boolean {
   return piece.cells.every((cell) => {
     const x = origin.x + cell.x
     const y = origin.y + cell.y
-    return x >= 0 && x < BOARD_SIZE && y >= 0 && y < BOARD_SIZE && board[y][x] === 'empty'
+    return isBoardPoint({ x, y }) && board[y][x] === 'empty'
   })
 }
 
@@ -199,7 +209,7 @@ function clearSquare(current: GameState, center: Point, radius: number): { state
 }
 
 export function useBloom(current: GameState, center: Point): MoveResult {
-  if (current.status !== 'selecting-bloom' || current.board[center.y]?.[center.x] === 'empty') {
+  if (current.status !== 'selecting-bloom' || !isOccupiedPoint(current.board, center)) {
     return { state: current, valid: false, clearedLines: 0, clearedCells: 0, gameOver: false }
   }
   const result = clearSquare(current, center, 1)
@@ -216,7 +226,7 @@ export function beginDew(current: GameState): GameState {
 }
 
 export function useDew(current: GameState, point: Point): MoveResult {
-  if (current.status !== 'selecting-dew' || current.board[point.y]?.[point.x] === 'empty') {
+  if (current.status !== 'selecting-dew' || !isOccupiedPoint(current.board, point)) {
     return { state: current, valid: false, clearedLines: 0, clearedCells: 0, gameOver: false }
   }
   const state = cloneState(current)
@@ -233,7 +243,7 @@ export function beginPrune(current: GameState): GameState {
 }
 
 export function usePrune(current: GameState, center: Point): MoveResult {
-  if (current.status !== 'selecting-prune' || current.board[center.y]?.[center.x] === 'empty') {
+  if (current.status !== 'selecting-prune' || !isOccupiedPoint(current.board, center)) {
     return { state: current, valid: false, clearedLines: 0, clearedCells: 0, gameOver: false }
   }
   const state = cloneState(current)
@@ -255,7 +265,7 @@ export function usePrune(current: GameState, center: Point): MoveResult {
 }
 
 export function revive(current: GameState, center: Point): MoveResult {
-  if (current.status !== 'awaiting-revive' || !current.reviveAvailable) {
+  if (current.status !== 'awaiting-revive' || !current.reviveAvailable || !isBoardPoint(center)) {
     return { state: current, valid: false, clearedLines: 0, clearedCells: 0, gameOver: false }
   }
   const result = clearSquare(current, center, 1)

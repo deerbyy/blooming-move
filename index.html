@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#274d3a" />
+    <meta name="description" content="Цветущий ход — уютная головоломка о цветах и рекордах." />
+    <title>Цветущий ход</title>
+    <script>
+      // The real SDK needs a Yandex Games parent frame. Local development deliberately
+      // uses the adapter stub below, avoiding third-party console errors on localhost.
+      if (!['localhost', '127.0.0.1'].includes(location.hostname)) {
+        document.write('<script src="https://yandex.ru/games/sdk/v2"><\/script>')
+      }
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

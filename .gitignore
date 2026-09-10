@@ -3,3 +3,7 @@ dist/
 coverage/
 tsconfig.tsbuildinfo
 .DS_Store
+artifacts/
+backups/
+blooming-move-source.zip
+blooming-move-yandex-20*.zip

@@ -5,6 +5,7 @@ export const BLOOM_THRESHOLD = 4
 export type Cell = 'empty' | 'leaf' | 'weed'
 export type PieceColor = 'coral' | 'sun' | 'mint' | 'violet' | 'sky'
 export type GameMode = 'standard' | 'daily'
+export type GardenZoneId = 'warm' | 'rose' | 'lily' | 'moon' | 'dome'
 export type RunStatus = 'playing' | 'selecting-bloom' | 'selecting-dew' | 'selecting-prune' | 'awaiting-revive' | 'finished'
 
 export interface Point {
@@ -23,6 +24,7 @@ export interface GameState {
   mode: GameMode
   challengeId: string | null
   board: Cell[][]
+  boardColors?: Array<Array<PieceColor | null>>
   pieces: Array<Piece | null>
   score: number
   bestCombo: number
@@ -34,6 +36,8 @@ export interface GameState {
   /** A row-and-column cleanup earned for clearing two or more lines at once. */
   pruneReady: boolean
   turn: number
+  /** Base daily racks already generated; optional for legacy v2 saves. */
+  dailyRack?: number
   rngState: number
   reviveAvailable: boolean
   status: RunStatus
@@ -47,6 +51,10 @@ export interface PlayerProgress {
   completedRuns: number
   lastInterstitialAt: number
   muted: boolean
+  /** Selected cosmetic scene; absent in legacy profiles. Never affects a run. */
+  selectedGarden?: GardenZoneId
+  /** Last explicit scene choice, used when merging local and cloud profiles. */
+  gardenSelectedAt?: number
 }
 
 export interface MoveResult {

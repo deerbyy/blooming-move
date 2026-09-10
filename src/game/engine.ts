@@ -11,7 +11,7 @@ function cloneBoard(board: Cell[][]): Cell[][] {
 }
 
 function cloneState(state: GameState): GameState {
-  return { ...state, board: cloneBoard(state.board), pieces: [...state.pieces] }
+  return { ...state, board: cloneBoard(state.board), boardColors: state.boardColors?.map(row => [...row]), pieces: [...state.pieces] }
 }
 
 export function challengeIdFor(date = new Date()): string {
@@ -32,6 +32,7 @@ export function createGame(mode: GameMode, challengeId: string | null = null): G
     mode,
     challengeId: id,
     board: emptyBoard(),
+    boardColors: Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(null)),
     pieces: [null, null, null],
     score: 0,
     bestCombo: 0,
@@ -82,9 +83,34 @@ function hasEmptyCell(board: Cell[][]): boolean {
   return board.some((row) => row.some((cell) => cell === 'empty'))
 }
 
+function refillDailyPieces(state: GameState): GameState {
+  // Rack index keeps the base sequence shared even if revive replaces a partial rack.
+  const rack = state.dailyRack ?? Math.floor(state.turn / 3)
+  const difficulty = rack >= 10 ? 2 : rack >= 4 ? 1 : 0
+  const pieces: Piece[] = []
+  let seed = state.rngState
+  for (let index = 0; index < 3; index += 1) {
+    let piece: Piece
+    ;[seed, piece] = generatePiece(seed, difficulty, rack * 3 + index)
+    pieces.push(piece)
+  }
+
+  // The daily reserve changes only slot 3 and never advances the generator.
+  // Players therefore share the same subsequent base racks even when their
+  // boards need different assistance. A full board requires an earned tool.
+  if (!hasAnyMove(state.board, pieces) && hasEmptyCell(state.board)) {
+    pieces[2] = singleCellPiece(seed, rack)
+  }
+  state.pieces = pieces
+  state.rngState = seed
+  state.dailyRack = rack + 1
+  return state
+}
+
 export function refillPieces(current: GameState): GameState {
   if (current.pieces.some(Boolean)) return current
   const state = cloneState(current)
+  if (state.mode === 'daily') return refillDailyPieces(state)
   const difficulty = difficultyFor(state.score)
   let pieces: Piece[] = []
   let seed = state.rngState
@@ -106,7 +132,9 @@ export function refillPieces(current: GameState): GameState {
   }
 
   if (hasEmptyCell(state.board)) {
-    state.pieces = [singleCellPiece(seed, state.turn), null, null]
+    // Keep the three-piece rack intact. Only the last slot becomes a reserve
+    // sprout, just as in daily mode; null slots would deal a one-piece round.
+    state.pieces = [pieces[0], pieces[1], singleCellPiece(seed, state.turn)]
     state.rngState = seed
     return state
   }
@@ -123,30 +151,25 @@ function linesToClear(board: Cell[][]): { rows: number[]; columns: number[] } {
   return { rows, columns }
 }
 
-function addWeed(state: GameState): void {
-  const difficulty = difficultyFor(state.score)
-  if (difficulty === 0) return
-  const interval = difficulty === 1 ? 5 : 4
-  if (state.turn === 0 || state.turn % interval !== 0) return
-
-  const candidates: Point[] = []
-  for (let index = 0; index < BOARD_SIZE; index += 1) {
-    for (const point of [{ x: index, y: 0 }, { x: index, y: BOARD_SIZE - 1 }, { x: 0, y: index }, { x: BOARD_SIZE - 1, y: index }]) {
-      if (state.board[point.y][point.x] === 'empty') candidates.push(point)
-    }
-  }
-  if (candidates.length === 0) return
-  let random: number
-  ;[state.rngState, random] = nextRandom(state.rngState)
-  const weed = candidates[Math.floor(random * candidates.length)]
-  state.board[weed.y][weed.x] = 'weed'
-}
-
 function updateEndState(state: GameState): boolean {
   if (state.status !== 'playing') return false
   if (hasAnyMove(state.board, state.pieces)) return false
+  if ((state.bloomReady || state.dew > 0 || state.pruneReady) && state.board.some(row => row.some(cell => cell !== 'empty'))) return false
   state.status = state.reviveAvailable ? 'awaiting-revive' : 'finished'
   return true
+}
+
+/** Recover a saved rack and let earned tools resolve a blocked board before offering a revive. */
+export function resumeRun(current: GameState): GameState {
+  if (current.status === 'finished') return current
+  const state = refillPieces(cloneState(current))
+  if (state.status === 'awaiting-revive') {
+    const canUseTool = (state.bloomReady || state.dew > 0 || state.pruneReady)
+      && state.board.some(row => row.some(cell => cell !== 'empty'))
+    if (hasAnyMove(state.board, state.pieces) || canUseTool) state.status = 'playing'
+  }
+  updateEndState(state)
+  return state
 }
 
 export function placePiece(current: GameState, index: number, origin: Point): MoveResult {
@@ -156,7 +179,11 @@ export function placePiece(current: GameState, index: number, origin: Point): Mo
   }
 
   const state = cloneState(current)
-  for (const cell of piece.cells) state.board[origin.y + cell.y][origin.x + cell.x] = 'leaf'
+  state.boardColors ??= Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(null))
+  for (const cell of piece.cells) {
+    state.board[origin.y + cell.y][origin.x + cell.x] = 'leaf'
+    state.boardColors[origin.y + cell.y][origin.x + cell.x] = piece.color
+  }
   state.pieces[index] = null
   state.turn += 1
 
@@ -167,6 +194,7 @@ export function placePiece(current: GameState, index: number, origin: Point): Mo
   for (const point of cells) {
     const [x, y] = point.split(':').map(Number)
     state.board[y][x] = 'empty'
+    if (state.boardColors) state.boardColors[y][x] = null
   }
 
   const clearedLines = clear.rows.length + clear.columns.length
@@ -183,7 +211,6 @@ export function placePiece(current: GameState, index: number, origin: Point): Mo
   }
   state.score += piece.cells.length * 10 + clearedCells * 12 + clearedLines * 45 + Math.max(0, state.combo - 1) * 25
 
-  addWeed(state)
   const refilled = refillPieces(state)
   const gameOver = updateEndState(refilled)
   return { state: refilled, valid: true, clearedLines, clearedCells, gameOver }
@@ -201,6 +228,7 @@ function clearSquare(current: GameState, center: Point, radius: number): { state
     for (let x = center.x - radius; x <= center.x + radius; x += 1) {
       if (x >= 0 && x < BOARD_SIZE && y >= 0 && y < BOARD_SIZE && state.board[y][x] !== 'empty') {
         state.board[y][x] = 'empty'
+        if (state.boardColors) state.boardColors[y][x] = null
         cleared += 1
       }
     }
@@ -217,7 +245,8 @@ export function useBloom(current: GameState, center: Point): MoveResult {
   result.state.bloomReady = false
   result.state.status = 'playing'
   result.state.score += result.cleared * 20 + 80
-  return { state: result.state, valid: true, clearedLines: 0, clearedCells: result.cleared, gameOver: false }
+  const state = refillPieces(result.state)
+  return { state, valid: true, clearedLines: 0, clearedCells: result.cleared, gameOver: updateEndState(state) }
 }
 
 export function beginDew(current: GameState): GameState {
@@ -231,10 +260,12 @@ export function useDew(current: GameState, point: Point): MoveResult {
   }
   const state = cloneState(current)
   state.board[point.y][point.x] = 'empty'
+  if (state.boardColors) state.boardColors[point.y][point.x] = null
   state.dew -= 1
   state.status = 'playing'
   state.score += 24
-  return { state, valid: true, clearedLines: 0, clearedCells: 1, gameOver: false }
+  const refilled = refillPieces(state)
+  return { state: refilled, valid: true, clearedLines: 0, clearedCells: 1, gameOver: updateEndState(refilled) }
 }
 
 export function beginPrune(current: GameState): GameState {
@@ -251,17 +282,20 @@ export function usePrune(current: GameState, center: Point): MoveResult {
   for (let index = 0; index < BOARD_SIZE; index += 1) {
     if (state.board[center.y][index] !== 'empty') {
       state.board[center.y][index] = 'empty'
+      if (state.boardColors) state.boardColors[center.y][index] = null
       cleared += 1
     }
     if (index !== center.y && state.board[index][center.x] !== 'empty') {
       state.board[index][center.x] = 'empty'
+      if (state.boardColors) state.boardColors[index][center.x] = null
       cleared += 1
     }
   }
   state.pruneReady = false
   state.status = 'playing'
   state.score += cleared * 14 + 90
-  return { state, valid: true, clearedLines: 0, clearedCells: cleared, gameOver: false }
+  const refilled = refillPieces(state)
+  return { state: refilled, valid: true, clearedLines: 0, clearedCells: cleared, gameOver: updateEndState(refilled) }
 }
 
 export function revive(current: GameState, center: Point): MoveResult {
@@ -269,8 +303,10 @@ export function revive(current: GameState, center: Point): MoveResult {
     return { state: current, valid: false, clearedLines: 0, clearedCells: 0, gameOver: false }
   }
   const result = clearSquare(current, center, 1)
+  if (!result.cleared) return { state: current, valid: false, clearedLines: 0, clearedCells: 0, gameOver: false }
   result.state.reviveAvailable = false
   result.state.status = 'playing'
+  if (!hasAnyMove(result.state.board, result.state.pieces)) result.state.pieces = [null, null, null]
   const refilled = refillPieces(result.state)
   const gameOver = updateEndState(refilled)
   return { state: refilled, valid: result.cleared > 0, clearedLines: 0, clearedCells: result.cleared, gameOver }

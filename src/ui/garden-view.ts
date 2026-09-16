@@ -1,5 +1,6 @@
 import type { Locale } from '../i18n'
 import { GARDEN_ZONES } from '../game/garden'
+import { gardenAtmosphere } from './garden-atmosphere'
 
 export const gardenNames: Record<Locale, string[]> = {
   ru: ['Тёплая грядка', 'Розовая галерея', 'Пруд кувшинок', 'Лунный зимний сад', 'Купол цветов'],
@@ -25,5 +26,5 @@ export const gardenDescriptions: Record<Locale, string[]> = {
 /** The preview and the selected game background use the very same painting. */
 export function gardenScene(index: number): string {
   const zone = GARDEN_ZONES[index]?.id ?? 'warm'
-  return `<img class="garden-scene-art garden-scene-${zone}" src="assets/art/garden-${zone}.webp" alt="" decoding="async" width="1536" height="1024">`
+  return `<div class="garden-scene-living"><img class="garden-scene-art garden-scene-${zone}" src="assets/art/garden-${zone}.webp" alt="" decoding="async" width="1536" height="1024">${gardenAtmosphere(zone)}</div>`
 }

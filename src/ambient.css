@@ -1,0 +1,47 @@
+/* All atmosphere stays behind the board and shares the painting's cover crop. */
+.garden-environment { overflow: hidden; }
+.garden-living-layer { position: absolute; inset: 0; opacity: 0; transition: opacity .65s ease; pointer-events: none; }
+.garden-living-layer.is-visible { opacity: 1; }
+.garden-scene-living { position: relative; width: 100%; height: 100%; overflow: hidden; }
+.garden-atmosphere { position: absolute; inset: 0; pointer-events: none; overflow: hidden; container-type: size; --scene-y: 50%; }
+.garden-scene-living .garden-atmosphere { --scene-y: 57%; }
+.garden-scene-living .atmosphere-lily { --scene-y: 70%; }
+.garden-scene-living .atmosphere-moon { --scene-y: 36%; }
+.ambient-stage { position: absolute; width: max(100cqw,150cqh); height: max(100cqh,66.6667cqw); left: 50%; top: var(--scene-y); transform: translate(-50%,calc(-1 * var(--scene-y))); }
+.ambient-foliage { position: absolute; background-repeat: no-repeat; mask-image: radial-gradient(ellipse,black 27%,#000b 48%,transparent 72%); transform-origin: 50% 20%; animation: foliage-breeze var(--sway) ease-in-out var(--delay) infinite alternate; }
+@keyframes foliage-breeze { from { transform: rotate(-.35deg) translate(-.8px,.3px); } to { transform: rotate(.45deg) translate(1.2px,-.7px); } }
+.ambient-light { position: absolute; inset: 0; overflow: hidden; mix-blend-mode: screen; }
+.ambient-light i { position: absolute; width: 40%; height: 125%; top: -25%; left: 4%; background: conic-gradient(from 151deg at 50% 0%,transparent 0deg,#fff1b8a0 9deg,#fff6d260 14deg,transparent 24deg); filter: blur(9px); transform-origin: 50% 0; animation: sunlight-drift 21s ease-in-out infinite alternate; }
+.ambient-light i + i { left: 24%; width: 29%; animation-duration: 29s; animation-delay: -14s; opacity: .45; }
+.atmosphere-rose .ambient-light i { left: 36%; }
+.atmosphere-dome .ambient-light i { left: 36%; top: 6%; opacity: .5; }
+.atmosphere-lily .ambient-light i { left: 31%; opacity: .45; }
+.atmosphere-moon .ambient-light i { left: 42%; background: conic-gradient(from 150deg at 50% 0%,transparent,#cedcff50 11deg,transparent 24deg); opacity: .3; }
+@keyframes sunlight-drift { from { transform: rotate(-5deg); opacity: .18; } to { transform: rotate(4deg); opacity: .42; } }
+.ambient-motes, .ambient-petals, .ambient-snow, .ambient-water { position: absolute; inset: 0; }
+.ambient-dust, .ambient-petal, .ambient-snowflake { position: absolute; left: var(--x); top: var(--y); width: var(--size); height: var(--size); animation: dust-drift var(--duration) ease-in-out var(--delay) infinite; }
+.ambient-dust { border-radius: 50%; background: #fff6d2; box-shadow: 0 0 6px 2px #ffe7ae65; }
+.ambient-dust:nth-child(3n) { filter: blur(1px); }
+.atmosphere-moon .ambient-dust { background: #e1ecff; box-shadow: 0 0 7px #dce9ff80; }
+@keyframes dust-drift { 0%,100% { opacity: 0; transform: translate(0,30px) scale(.7); } 20% { opacity: .38; } 55% { opacity: .66; transform: translate(var(--drift),-25px) scale(1); } 85% { opacity: .22; } 99% { opacity: 0; transform: translate(calc(var(--drift) * .5),-75px) scale(.8); } }
+.ambient-petal { height: calc(var(--size) * 1.5); border-radius: 85% 12% 80% 25%; background: radial-gradient(ellipse at 30% 25%,#ffdad5,#df8790); box-shadow: inset 1px 1px 2px #fff2cf75; animation-name: petal-float; }
+@keyframes petal-float { 0% { opacity: 0; transform: translate(0,-60px) rotate(var(--spin)); } 15%,75% { opacity: .65; } 45% { transform: translate(var(--drift),20px) rotate(calc(var(--spin) + 55deg)) rotateY(35deg); } 100% { opacity: 0; transform: translate(15px,150px) rotate(calc(var(--spin) + 130deg)) rotateY(65deg); } }
+/* Snow is outside the glass, restricted to window panes rather than indoor plants. */
+.ambient-snow { mask-image: linear-gradient(black,black),linear-gradient(black,black),linear-gradient(black,black),linear-gradient(black,black),linear-gradient(black,black); mask-size: 9% 19%,4% 24%,9% 27%,8% 20%,7% 20%; mask-position: 8% 25%,35.5% 32%,50% 32%,65% 31%,96% 23%; mask-repeat: no-repeat; }
+.ambient-snowflake { background: #f3f7ff; border-radius: 50%; box-shadow: 0 0 3px #e2edff; animation-name: snow-fall; }
+@keyframes snow-fall { 0% { opacity: 0; transform: translate(0,-30px); } 20%,80% { opacity: .65; } 100% { opacity: 0; transform: translate(var(--drift),130px); } }
+.ambient-glint { position: absolute; width: 11px; height: 11px; background: radial-gradient(circle,#fff 0%,#fff7d8a0 20%,transparent 68%); animation: garden-glint var(--duration) ease-in-out var(--delay) infinite; }
+.ambient-glint::after { content: ''; position: absolute; inset: 0; background: #fffaea; clip-path: polygon(48% 0,57% 43%,100% 50%,57% 57%,50% 100%,43% 57%,0 50%,43% 43%); }
+.atmosphere-moon .ambient-glint { width: 13px; height: 13px; filter: drop-shadow(0 0 3px #bfdaff); }
+@keyframes garden-glint { 0%,65%,100% { opacity: 0; transform: scale(.35); } 78% { opacity: .9; transform: scale(1); } 90% { opacity: .15; transform: scale(.65); } }
+.ambient-water { clip-path: polygon(30% 57%,76% 57%,100% 72%,100% 100%,0 100%,0 77%); }
+.ambient-water > i { position: absolute; width: 100px; height: 22px; border: 1px solid #edffe59c; border-radius: 50%; box-shadow: 0 0 7px #caffdc30,inset 0 0 8px #caffdc20; animation: pond-ripple 9s ease-out var(--delay) infinite; }
+.ambient-water::before { content: ''; position: absolute; inset: 56% 0 0; background: repeating-linear-gradient(178deg,transparent 0 18px,#f2ffe517 20px,transparent 24px 37px); mask-image: radial-gradient(ellipse,black,transparent 72%); animation: water-light 12s ease-in-out infinite alternate; }
+@keyframes pond-ripple { from { opacity: 0; transform: scale(.2); } 20% { opacity: .45; } to { opacity: 0; transform: scale(2.4); } }
+@keyframes water-light { from { opacity: .3; transform: translate(-5px,-4px) scaleX(.98); } to { opacity: .65; transform: translate(7px,5px) scaleX(1.02); } }
+.ambient-lantern { position: absolute; width: 6%; aspect-ratio: 1; transform: translate(-50%,-50%); background: radial-gradient(circle,#ffd47775,transparent 68%); mix-blend-mode: screen; animation: lantern-breathe 5.3s ease-in-out var(--delay) infinite alternate; }
+@keyframes lantern-breathe { from { opacity: .3; } to { opacity: .8; } }
+.garden-mini-scene .ambient-petals, .garden-mini-scene .ambient-motes { display: none; }
+.is-paused .garden-atmosphere *, .is-paused .garden-atmosphere *::before, .is-paused .garden-atmosphere *::after { animation-play-state: paused !important; }
+@media (max-width: 700px) { .ambient-dust:nth-child(n+19), .ambient-snowflake:nth-child(n+19) { display: none; } }
+@media (prefers-reduced-motion: reduce) { .garden-atmosphere { display: none; } }

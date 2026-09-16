@@ -1,4 +1,5 @@
 import './styles.css'
+import './ambient.css'
 import { icon } from './ui/icons'
 import { gardenScene, gardenNames, gardenDescriptions } from './ui/garden-view'
 import { setGardenBackdrop } from './ui/garden-backdrop'

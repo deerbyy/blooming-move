@@ -132,9 +132,9 @@ export class GardenAudio {
     const pitch = 1 + [0, .027, -.022, .014, -.012][this.variation % 5]
     switch (kind) {
       case 'place':
-        this.tone(bus, 470 * pitch, at, .19, .19, 'sine', 185 * pitch)
-        this.tone(bus, 840 * pitch, at + .025, .115, .045, 'sine', 620 * pitch)
-        this.rustle(bus, at, .085, .018, 1800)
+        // A quiet, rounded drop: shallow pitch movement and a soft attack.
+        this.tone(bus, 300 * pitch, at, .28, .085, 'sine', 245 * pitch, .035)
+        this.tone(bus, 440 * pitch, at + .025, .22, .014, 'sine', 405 * pitch, .04)
         break
       case 'ui':
         this.tone(bus, 640 * pitch, at, .085, .09, 'sine', 760 * pitch)
@@ -281,7 +281,7 @@ export class GardenAudio {
     this.tone(bus, frequency * 2.01, at, duration * .42, gain * .16, 'sine')
   }
 
-  private tone(bus: Bus, frequency: number, at: number, duration: number, volume: number, type: OscillatorType, endFrequency = frequency): void {
+  private tone(bus: Bus, frequency: number, at: number, duration: number, volume: number, type: OscillatorType, endFrequency = frequency, attack = .012): void {
     const context = this.context
     if (!context || !this.buses || this.voices.size >= 48 || this.levels[bus] === 0) return
     const source = context.createOscillator()
@@ -289,7 +289,7 @@ export class GardenAudio {
     source.type = type
     source.frequency.setValueAtTime(frequency, at)
     if (frequency !== endFrequency) source.frequency.exponentialRampToValueAtTime(endFrequency, at + duration)
-    this.envelope(gain.gain, at, duration, volume)
+    this.envelope(gain.gain, at, duration, volume, attack)
     source.connect(gain).connect(this.buses[bus])
     this.track(source, [source, gain], bus, at, duration)
   }
@@ -309,9 +309,9 @@ export class GardenAudio {
     this.track(source, [source, filter, gain], bus, at, duration)
   }
 
-  private envelope(parameter: AudioParam, at: number, duration: number, volume: number): void {
+  private envelope(parameter: AudioParam, at: number, duration: number, volume: number, attack = .012): void {
     parameter.setValueAtTime(0, at)
-    parameter.linearRampToValueAtTime(volume, at + Math.min(.012, duration * .1))
+    parameter.linearRampToValueAtTime(volume, at + Math.min(attack, duration * .4))
     parameter.exponentialRampToValueAtTime(.0001, at + duration)
     parameter.setValueAtTime(0, at + duration + .005)
   }

@@ -1,4 +1,5 @@
 import { resumeRun } from './engine'
+import { isAudioLevels, normalizeAudioLevels } from '../audio-settings'
 import { canSelectGardenZone, isGardenZoneId, selectedGardenZone } from './garden'
 import { BLOOM_THRESHOLD, BOARD_SIZE, type Cell, type GameState, type Piece, type PieceColor, type PlayerProgress, type RunStatus } from './types'
 
@@ -16,6 +17,7 @@ export function defaultProgress(): PlayerProgress {
     completedRuns: 0,
     lastInterstitialAt: 0,
     muted: false,
+    audioLevels: normalizeAudioLevels(undefined),
     selectedGarden: 'warm',
     gardenSelectedAt: 0
   }
@@ -62,6 +64,7 @@ export function isProgress(value: unknown): value is PlayerProgress {
     && isCounter(value.completedRuns)
     && isCounter(value.lastInterstitialAt)
     && typeof value.muted === 'boolean'
+    && (value.audioLevels === undefined || isAudioLevels(value.audioLevels))
     && (value.selectedGarden === undefined || isGardenZoneId(value.selectedGarden))
     && (value.gardenSelectedAt === undefined || isCounter(value.gardenSelectedAt))
     && isRecord(value.dailyScores)
@@ -73,6 +76,7 @@ export function loadProgress(): PlayerProgress {
   if (!isRecord(saved)) return defaultProgress()
   // A damaged optional cosmetic setting must never discard earned progress.
   const candidate = { ...saved }
+  candidate.audioLevels = normalizeAudioLevels(candidate.audioLevels)
   if (!isGardenZoneId(candidate.selectedGarden)) delete candidate.selectedGarden
   if (!isCounter(candidate.gardenSelectedAt)) delete candidate.gardenSelectedAt
   if (!isProgress(candidate)) return defaultProgress()
@@ -187,6 +191,7 @@ export function mergeProgress(local: PlayerProgress, cloud: PlayerProgress): Pla
   const selection = cloudSelectionValid && (!localSelectionValid || cloudSelectionAt > localSelectionAt) ? cloud : local
   return {
     ...local,
+    audioLevels: normalizeAudioLevels(local.audioLevels),
     nectar: Math.max(local.nectar, cloud.nectar),
     bestScore: Math.max(local.bestScore, cloud.bestScore),
     dailyScores,

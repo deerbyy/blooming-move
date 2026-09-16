@@ -3,6 +3,7 @@ import { createGame, hasAnyMove, placePiece } from './engine'
 import { selectGardenZone } from './garden'
 import { clearRun, defaultProgress, isProgress, loadProgress, loadRun, mergeProgress, saveProgress, saveRun } from './storage'
 import { BOARD_SIZE } from './types'
+import { DEFAULT_AUDIO_LEVELS } from '../audio-settings'
 
 const runKey = 'blooming-move:run:v1'
 const profileKey = 'blooming-move:profile:v1'
@@ -108,6 +109,33 @@ describe('save migration and validation', () => {
 })
 
 describe('profile storage', () => {
+  it('adds audio defaults to a legacy profile without losing any achievements', () => {
+    const legacy = { ...defaultProgress(), nectar: 2400, bestScore: 5900, muted: true }
+    delete legacy.audioLevels
+    stored.set(profileKey, JSON.stringify(legacy))
+    expect(loadProgress()).toEqual({ ...legacy, audioLevels: DEFAULT_AUDIO_LEVELS })
+    expect(isProgress(legacy)).toBe(true)
+  })
+
+  it('normalizes malformed optional audio preferences without resetting progress', () => {
+    stored.set(profileKey, JSON.stringify({ ...defaultProgress(), nectar: 1500, audioLevels: { master: 6, music: -1, effects: 'bad' } }))
+    expect(loadProgress()).toMatchObject({ nectar: 1500, audioLevels: { master: 1, music: 0, effects: .8, ui: .5 } })
+  })
+
+  it('round-trips every audio channel including absolute silence', () => {
+    const progress = { ...defaultProgress(), audioLevels: { master: .5, music: 0, effects: .2, ui: 1 } }
+    saveProgress(progress)
+    expect(loadProgress()).toEqual(progress)
+  })
+
+  it('keeps this device audio preferences and mute state while merging cloud achievements', () => {
+    const local = { ...defaultProgress(), muted: true, audioLevels: { master: .4, music: 0, effects: .5, ui: .2 } }
+    const cloud = { ...defaultProgress(), nectar: 1500, bestScore: 5900 }
+    const merged = mergeProgress(local, cloud)
+    expect(merged).toMatchObject({ nectar: 1500, bestScore: 5900, muted: true, audioLevels: local.audioLevels })
+    expect(merged.audioLevels).not.toBe(local.audioLevels)
+  })
+
   it('migrates legacy profiles without losing nectar, daily results or settings', () => {
     const legacy = { ...defaultProgress(), nectar: 900, bestScore: 1800, completedRuns: 7, muted: true, dailyScores: { '2026-09-09': 1400 } }
     delete legacy.selectedGarden

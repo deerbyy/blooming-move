@@ -6,6 +6,9 @@ import { GARDEN_ZONES, availableGardenZones, nextGardenGoal, selectedGardenZone,
 import { guideMarkup, contextualHint } from './ui/game-guide'
 import { flowerMotion } from './ui/flower-motion'
 import { placementPreview, type PlacementPreview } from './ui/placement-preview'
+import { setRollingNumber, finishRollingNumbers } from './ui/rolling-number'
+import { GardenAudio, normalizeAudioLevels, type AudioChannel } from './audio'
+import { crossedPersonalBest } from './ui/record-milestone'
 import { beginBloom, beginDew, beginPrune, challengeIdFor, createGame, finishRun, placePiece, revive, useBloom, useDew, usePrune } from './game/engine'
 import { pieceBounds } from './game/shapes'
 import { clearRun, isProgress, loadProgress, loadRun, mergeProgress, saveProgress, saveRun } from './game/storage'
@@ -28,7 +31,9 @@ let draggingPiece: number | null = null
 let dragPoint: { x: number; y: number } | null = null
 let hintKey: TranslationKey = 'choosePiece'
 let toast = ''
-let modal: 'intro' | 'modes' | 'garden' | 'leaderboard' | 'pause' | 'revive' | 'result' | 'controls' | null = null
+let modal: 'intro' | 'modes' | 'settings' | 'garden' | 'leaderboard' | 'pause' | 'revive' | 'result' | 'controls' | null = null
+type Explanation = 'score' | 'combo' | 'best' | 'nectar' | 'daily'
+let tipOpener: HTMLElement | null = null
 
 interface Particle {
   x: number
@@ -82,7 +87,9 @@ let gardenPreview: GardenZoneId = selectedGardenZone(profile)
 let modalOpener: HTMLElement | null = null
 let earnedNectar = 0
 let unlockedThisRun = 0
-let soundContext: AudioContext | null = null
+const audio = new GardenAudio()
+let recordCelebrated = false
+let recordTimer = 0
 let keyboardCell: Point = { x: 0, y: 0 }
 let keyboardActive = false
 let dragPointerId: number | null = null
@@ -103,11 +110,13 @@ function cancelDrag(): void {
   drawBoard()
 }
 function syncActivity(notifyPlatform = true): void {
+  audio.setLevels(normalizeAudioLevels(profile.audioLevels))
+  audio.setMuted(profile.muted)
+  audio.setPaused(isPaused())
   if (isPaused()) {
     cancelDrag()
-    void soundContext?.suspend()
+    finishRollingNumbers()
   } else {
-    if (!profile.muted) void soundContext?.resume()
     startParticleLoop()
   }
   if (notifyPlatform) platform.gameplay(inputReady && !signingIn && !modal && windowFocused && !document.hidden && game?.status !== 'finished')
@@ -115,22 +124,11 @@ function syncActivity(notifyPlatform = true): void {
 }
 function playChime(kind: 'place' | 'line' | 'bloom' | 'dew' | 'prune'): void {
   if (isPaused() || profile.muted) return
-  soundContext ??= new AudioContext()
-  void soundContext.resume()
-  const notes = { place: [392, 587], line: [523, 659, 784], bloom: [523, 659, 784, 1046], dew: [880, 1320], prune: [659, 988, 784] }[kind]
-  notes.forEach((frequency, i) => {
-    const oscillator = soundContext!.createOscillator()
-    const gain = soundContext!.createGain()
-    const at = soundContext!.currentTime + i * .065
-    oscillator.type = 'sine'
-    oscillator.frequency.setValueAtTime(frequency, at)
-    gain.gain.setValueAtTime(0, at)
-    gain.gain.linearRampToValueAtTime(kind === 'place' ? .028 : .045, at + .012)
-    gain.gain.exponentialRampToValueAtTime(.001, at + .32)
-    oscillator.connect(gain).connect(soundContext!.destination)
-    oscillator.start(at)
-    oscillator.stop(at + .34)
-  })
+  audio.play(kind)
+}
+
+function canPreviewAudio(): boolean {
+  return inputReady && windowFocused && !document.hidden && !platform.paused && !signingIn
 }
 
 /** The supplied artwork stays independent from the game state, so cells can still animate separately. */
@@ -197,6 +195,52 @@ function pieceMarkup(piece: Piece, index: number): string {
   </button>`
 }
 
+function statLabel(key: Exclude<Explanation, 'daily'>, name: Parameters<typeof icon>[0]): string {
+  return `<button class="stat-label" data-explain="${key}" aria-label="${t(key)}: ${t('explain')}" aria-expanded="false"><span>${icon(name)}${t(key)}</span><i aria-hidden="true">?</i></button>`
+}
+
+function closeExplanation(restoreFocus = true): void {
+  const tip = document.querySelector<HTMLElement>('#stat-tip')
+  if (tip) tip.hidden = true
+  const opener = tipOpener
+  tipOpener = null
+  opener?.setAttribute('aria-expanded', 'false')
+  if (restoreFocus) opener?.focus({ preventScroll: true })
+}
+
+function positionExplanation(): void {
+  const tip = document.querySelector<HTMLElement>('#stat-tip')
+  if (!tip || tip.hidden || !tipOpener) return
+  const anchor = tipOpener.getBoundingClientRect()
+  const gap = 10
+  const top = anchor.bottom + gap + tip.offsetHeight <= window.innerHeight - gap
+    ? anchor.bottom + gap : Math.max(gap, anchor.top - gap - tip.offsetHeight)
+  tip.style.left = `${Math.max(gap, Math.min(window.innerWidth - tip.offsetWidth - gap, anchor.left))}px`
+  tip.style.top = `${top}px`
+}
+
+function openExplanation(key: Explanation, opener: HTMLElement): void {
+  if (modal) return
+  if (tipOpener === opener) { closeExplanation(); return }
+  closeExplanation(false)
+  const tip = document.querySelector<HTMLElement>('#stat-tip')
+  if (!tip) return
+  const descriptions: Record<Explanation, TranslationKey[]> = {
+    score: ['scoreExplain'], combo: ['comboExplain'], best: ['bestExplain'],
+    nectar: ['nectarExplain', 'nectarFormula'], daily: ['dailyExplain', 'dailyExplainDetail']
+  }
+  tip.innerHTML = `<button class="tip-close" data-tip-close aria-label="${t('close')}">×</button><h3 id="stat-tip-title">${t(key)}</h3>${descriptions[key].map(text => `<p>${t(text)}</p>`).join('')}${key === 'nectar' ? `<button class="secondary-button" data-tip-garden>${t('visitGarden')}</button>` : key === 'daily' ? `<button class="primary-button" data-tip-daily>${t('start')}</button>` : ''}`
+  tipOpener = opener
+  opener.setAttribute('aria-expanded', 'true')
+  opener.setAttribute('aria-controls', 'stat-tip')
+  tip.hidden = false
+  positionExplanation()
+  tip.querySelector<HTMLElement>('[data-tip-close]')?.addEventListener('click', () => closeExplanation())
+  tip.querySelector<HTMLElement>('[data-tip-garden]')?.addEventListener('click', () => { closeExplanation(); openGarden() })
+  tip.querySelector<HTMLElement>('[data-tip-daily]')?.addEventListener('click', () => { closeExplanation(); void switchMode('daily') })
+  tip.querySelector<HTMLElement>('[data-tip-close]')?.focus({ preventScroll: true })
+}
+
 function layout(): void {
   root.innerHTML = `
     <div class="garden-environment" aria-hidden="true"></div>
@@ -221,15 +265,16 @@ function layout(): void {
               <button class="text-button" id="controls-button">${icon('help')}<span>${t('controls')}</span></button>
             </div>
             <div class="score-row">
-              <div class="score-card score-primary"><span>${icon('mark')}${t('score')}</span><strong id="score-value">0</strong><small id="lines-value">0</small></div>
-              <div class="score-card score-combo"><span>${icon('flame')}${t('combo')}</span><strong id="combo-value">—</strong><small>${t('consecutiveClears')}</small></div>
-              <div class="score-card"><span>${icon('crown')}${t('best')}</span><strong id="best-value">0</strong></div>
-              <button class="nectar-card" id="garden-button"><span>${icon('seed')}${t('nectar')}</span><strong><b id="nectar-value">0</b><em id="nectar-next">/ 300</em></strong><div class="mini-growth"><i></i></div><small id="garden-next-label"></small></button>
+              <div class="score-card score-primary">${statLabel('score', 'mark')}<strong id="score-value">0</strong><small id="lines-value">0</small></div>
+              <div class="score-card score-combo">${statLabel('combo', 'flame')}<strong id="combo-value">—</strong><small>${t('consecutiveClears')}</small></div>
+              <div class="score-card score-best">${statLabel('best', 'crown')}<strong id="best-value">0</strong></div>
+              <div class="nectar-card">${statLabel('nectar', 'seed')}<button class="nectar-open" id="garden-button" aria-label="${t('visitGarden')}"><strong><b id="nectar-value">0</b><em id="nectar-next">/ 300</em></strong><div class="mini-growth"><i></i></div><small id="garden-next-label"></small></button></div>
             </div>
           </section>
           <div class="canvas-wrap" id="canvas-wrap">
             <canvas id="game-canvas" tabindex="0" role="application" aria-label="${t('boardControls')}"></canvas>
             <div class="combo-signal" id="combo-signal" aria-live="polite"><span id="combo-signal-kicker"></span><strong id="combo-signal-value"></strong></div>
+            <div class="record-celebration" id="record-celebration" role="status" aria-live="polite"></div>
           </div>
           <div class="game-meta">
             <div class="petal-meter"><span>${icon('bloom')}</span><div class="meter-track" aria-label="${t('bloom')}"><i id="petal-fill"></i></div><b id="petal-value">0/4</b></div>
@@ -248,7 +293,7 @@ function layout(): void {
 
         <aside class="side-panel">
           <section class="side-card daily-card">
-            <div class="side-card-heading"><span class="leaf-icon">${icon('calendar')}</span><p>${t('daily')}</p></div>
+            <div class="side-card-heading"><span class="leaf-icon">${icon('calendar')}</span><p>${t('daily')}</p><button class="daily-help" data-explain="daily" aria-label="${t('daily')}: ${t('explain')}" aria-expanded="false">${icon('help')}</button></div>
             <small class="daily-goal-label">${t('dailyGoal')}</small><strong id="daily-score">2 000</strong>
             <div class="challenge-blooms" aria-hidden="true">${Array.from({length:7}, () => `<i>${icon('bloom')}</i>`).join('')}</div>
             <div class="daily-results"><span>${t('todayResult')}<b id="daily-personal">0</b></span><span>${t('personalBest')}<b>${icon('crown')}<i id="daily-top">0</i></b></span></div>
@@ -266,13 +311,15 @@ function layout(): void {
       <div id="toast" class="toast" role="status"></div>
       <div id="drag-ghost" class="drag-ghost" aria-hidden="true"></div>
       <div id="modal-host"></div>
+      <aside id="stat-tip" class="stat-tip" role="dialog" aria-labelledby="stat-tip-title" hidden></aside>
     </main>`
 
   wireStaticControls()
 }
 
 function wireStaticControls(): void {
-  document.querySelector<HTMLButtonElement>('#fullscreen-button')?.addEventListener('click', () => openModal('modes'))
+  document.querySelector<HTMLButtonElement>('#fullscreen-button')?.addEventListener('click', () => openModal('settings'))
+  root.querySelectorAll<HTMLElement>('[data-explain]').forEach(button => button.addEventListener('click', () => openExplanation(button.dataset.explain as Explanation, button)))
   document.querySelector<HTMLButtonElement>('#sound-button')?.addEventListener('click', toggleSound)
   document.querySelector<HTMLButtonElement>('#login-button')?.addEventListener('click', () => void signIn())
   document.querySelector<HTMLButtonElement>('#garden-button')?.addEventListener('click', () => openGarden())
@@ -281,7 +328,10 @@ function wireStaticControls(): void {
   document.querySelector<HTMLButtonElement>('#brand-button')?.addEventListener('click', () => openModal('controls'))
   document.querySelector<HTMLButtonElement>('#leaderboard-button')?.addEventListener('click', () => void openLeaderboard())
   document.querySelector<HTMLButtonElement>('#mode-button')?.addEventListener('click', () => openModal('modes'))
-  document.querySelector<HTMLButtonElement>('#daily-button')?.addEventListener('click', () => void switchMode('daily'))
+  document.querySelector<HTMLButtonElement>('#daily-button')?.addEventListener('click', event => {
+    if (window.matchMedia('(max-width: 700px), (max-height: 520px)').matches) openExplanation('daily', event.currentTarget as HTMLElement)
+    else void switchMode('daily')
+  })
   document.querySelector<HTMLButtonElement>('#controls-button')?.addEventListener('click', () => openModal('controls'))
   document.querySelector<HTMLButtonElement>('#pause-button')?.addEventListener('click', () => openModal('pause'))
   document.querySelector<HTMLButtonElement>('#bloom-button')?.addEventListener('click', activateBloom)
@@ -434,6 +484,7 @@ function handleBoardClick(cell: Point): void {
     saveActiveRun()
     update()
     emitAbilityBurst(cell, 'bloom')
+    celebrateRecord(state.score)
     settleAfterMove(result.gameOver)
     return
   }
@@ -449,6 +500,7 @@ function handleBoardClick(cell: Point): void {
     saveActiveRun()
     update()
     emitAbilityBurst(cell, 'dew')
+    celebrateRecord(state.score)
     settleAfterMove(result.gameOver)
     return
   }
@@ -464,6 +516,7 @@ function handleBoardClick(cell: Point): void {
     saveActiveRun()
     update()
     emitAbilityBurst(cell, 'prune')
+    celebrateRecord(state.score)
     settleAfterMove(result.gameOver)
     return
   }
@@ -490,6 +543,7 @@ function handleBoardClick(cell: Point): void {
   saveActiveRun()
   update()
   emitPlacement(piece, originFor(piece, cell), clearedPoints, result.clearedLines, game.combo)
+  celebrateRecord(state.score)
   settleAfterMove(result.gameOver)
 }
 
@@ -567,8 +621,7 @@ function toggleSound(): void {
   profile = { ...profile, muted: !profile.muted }
   persistProfile()
   showToast(profile.muted ? t('soundOff') : t('soundOn'))
-  if (profile.muted) void soundContext?.suspend()
-  else syncActivity()
+  syncActivity()
   update()
 }
 
@@ -634,16 +687,23 @@ function update(): void {
   const weedNote = document.querySelector<HTMLElement>('#weed-note')
   const toastElement = document.querySelector<HTMLElement>('#toast')
   const goal = nextGardenGoal(profile.nectar)
+  document.querySelector('.nectar-card')?.classList.toggle('has-goal', !!goal)
 
   const number = (value: number) => value.toLocaleString(platform.locale === 'ru' ? 'ru-RU' : 'en-US')
-  if (score) score.textContent = number(state.score)
-  if (best) best.textContent = number(profile.bestScore)
-  if (nectar) nectar.textContent = number(profile.nectar)
+  const counterOptions = { locale: platform.locale, reducedMotion: reducedMotion.matches || isPaused() }
+  const renderCounter = (element: HTMLElement | null, value: number, extra = {}) => {
+    // Keep background counters still in dialogs. The harvest rolls into the ribbon
+    // when the player returns to the board, instead of being spent behind a modal.
+    if (element && (!isPaused() || !element.classList.contains('rolling-number'))) setRollingNumber(element, value, { ...counterOptions, ...extra })
+  }
+  renderCounter(score, state.score)
+  renderCounter(best, profile.bestScore)
+  renderCounter(nectar, profile.nectar)
   if (nectarNext) {
     nectarNext.textContent = goal ? `/ ${number(goal.zone.nectar)}` : ''
   }
   if (lines) lines.textContent = lastGain > 0 ? `+${number(lastGain)}` : `${state.turn} ${t('moves')}`
-  if (combo) combo.textContent = state.combo > 0 ? `×${state.combo}` : '—'
+  renderCounter(combo, state.combo, { prefix: '×', emptyZero: true })
   if (petals) petals.textContent = `${state.petals}/${BLOOM_THRESHOLD}`
   if (petalFill) petalFill.style.width = `${(state.petals / BLOOM_THRESHOLD) * 100}%`
   if (mode) mode.innerHTML = `${icon(state.mode === 'daily' ? 'calendar' : 'seed')}<span>${modeName(state.mode)}</span>`
@@ -1200,6 +1260,35 @@ function showComboFanfare(lines: number, combo: number): void {
   fanfareTimer = window.setTimeout(() => signal.classList.remove('is-visible'), 1300)
 }
 
+function celebrateRecord(previousScore: number): void {
+  if (!game || recordCelebrated || !crossedPersonalBest(previousScore, game.score, profile.bestScore)) return
+  recordCelebrated = true
+  const banner = document.querySelector<HTMLElement>('#record-celebration')
+  if (!banner) return
+  // A separate, non-blocking celebration; the actual best is committed only at the harvest.
+  banner.innerHTML = `<div class="record-halo" aria-hidden="true"></div><span class="record-crown" aria-hidden="true">${icon('crown')}</span><small>${t('recordSurpassed')}</small><strong>${t('newBest')}</strong><b>${game.score.toLocaleString(platform.locale)}</b><span class="record-caption">${t('recordContinue')}</span><div class="record-petals" aria-hidden="true">${Array.from({ length: 12 }, (_, i) => `<i style="--petal:${i}"></i>`).join('')}</div>`
+  banner.classList.add('is-visible')
+  document.querySelector('.score-best')?.classList.add('is-record')
+  document.querySelector('#combo-signal')?.classList.remove('is-visible')
+  audio.play('record')
+  if (!reducedMotion.matches) {
+    for (const point of [{ x: 1, y: 1 }, { x: 6, y: 1 }, { x: 3.5, y: 2 }]) {
+      addBurst(point, 22, ['#ffda72', '#fff5bf', '#ec9ba1', '#aee5cc'], 'petal')
+    }
+    startParticleLoop()
+  }
+  window.clearTimeout(recordTimer)
+  recordTimer = window.setTimeout(clearRecordCelebration, 3800)
+}
+
+function clearRecordCelebration(): void {
+  window.clearTimeout(recordTimer)
+  const banner = document.querySelector<HTMLElement>('#record-celebration')
+  banner?.classList.remove('is-visible')
+  if (banner) banner.innerHTML = ''
+  document.querySelector('.score-best')?.classList.remove('is-record')
+}
+
 function boardPoint(point: Point): { x: number; y: number; cell: number } | null {
   const measurements = boardMeasurements()
   if (!measurements) return null
@@ -1399,6 +1488,7 @@ function startParticleLoop(): void {
 }
 
 function openModal(next: typeof modal): void {
+  closeExplanation(false)
   if (!modal && document.activeElement instanceof HTMLElement) modalOpener = document.activeElement
   modal = next
   syncActivity()
@@ -1436,13 +1526,17 @@ function renderModal(): void {
       <button data-mode="standard"><span>${icon('seed')}</span><strong>${t('standard')}</strong><small>${t('standardHint')}</small><em class="mode-choice-action">${t('standardGoal')}${icon('arrow')}</em></button>
       <button data-mode="daily"><span>${icon('calendar')}</span><strong>${t('daily')}</strong><small>${t('dailyShort')}</small><em class="mode-choice-action">${t('dailyGoal')}: 2 000${icon('arrow')}</em></button>
     </div><div class="settings-actions"><button class="secondary-button" data-help>${t('controls')}</button><button class="secondary-button" data-fullscreen>${t('fullscreen')}</button></div>`, true)
+  } else if (modal === 'settings') {
+    const levels = normalizeAudioLevels(profile.audioLevels)
+    const labels: Record<AudioChannel, TranslationKey> = { master: 'audioMaster', music: 'audioMusic', effects: 'audioEffects', ui: 'audioUi' }
+    host.innerHTML = modalMarkup(t('settings'), `<section class="audio-settings" aria-labelledby="audio-title"><h3 id="audio-title">${icon('sound')}${t('audioTitle')}</h3><p>${t('audioIntro')}</p><div class="audio-sliders">${(Object.keys(labels) as AudioChannel[]).map(channel => `<label class="audio-slider" for="audio-${channel}"><span>${t(labels[channel])}<output id="audio-${channel}-value" for="audio-${channel}">${Math.round(levels[channel] * 100)}%</output></span><input id="audio-${channel}" data-audio-channel="${channel}" type="range" min="0" max="100" step="1" value="${Math.round(levels[channel] * 100)}" aria-valuetext="${Math.round(levels[channel] * 100)}%" style="--level:${levels[channel] * 100}%"></label>`).join('')}</div><p class="audio-muted-note" id="audio-muted-note" ${profile.muted ? '' : 'hidden'}>${t('audioMuted')} <button data-audio-enable>${t('audioEnable')}</button></p><button class="secondary-button audio-preview" data-audio-preview>${icon('dew')}${t('audioPreview')}</button><small class="audio-footnote">${t('audioResumeHint')}</small></section><div class="settings-actions"><button class="secondary-button" data-mode-open>${t('modeTitle')}</button><button class="secondary-button" data-help>${t('controls')}</button><button class="secondary-button" data-fullscreen>${t('fullscreen')}</button></div><button class="primary-button" data-resume>${t('resume')}</button>`, true)
   } else if (modal === 'garden') {
     host.innerHTML = modalMarkup(t('gardenTitle'), gardenModalContent())
   } else if (modal === 'leaderboard') {
     host.innerHTML = modalMarkup(t('leaderboardTitle'), `<p>${t('leaderboardHint')}</p><div class="leaderboard-list" id="leaderboard-list"><p>${t('loadingRecords')}</p></div><p class="personal-best">${t('personalBest')}: <strong>${profile.bestScore}</strong></p>`, true)
     void populateLeaderboard()
   } else if (modal === 'pause') {
-    host.innerHTML = modalMarkup(t('pause'), `<p>${t('controlsText')}</p><button class="primary-button" data-resume>${t('resume')}</button>`, true)
+    host.innerHTML = modalMarkup(t('pause'), `<p>${t('controlsText')}</p><button class="primary-button" data-resume>${t('resume')}</button><button class="secondary-button" data-settings>${t('settings')}</button>`, true)
   } else if (modal === 'revive') {
     host.innerHTML = modalMarkup(t('reviveTitle'), `<p>${t('reviveText')}</p><div class="modal-actions"><button class="secondary-button" data-finish>${t('finish')}</button><button class="primary-button" data-revive>${t('revive')}</button></div>`, true, false)
   } else if (modal === 'result') {
@@ -1452,6 +1546,31 @@ function renderModal(): void {
     host.innerHTML = modalMarkup(t('controls'), guideMarkup(platform.locale), true)
   }
 
+  host.querySelectorAll<HTMLInputElement>('[data-audio-channel]').forEach(input => {
+    input.addEventListener('input', () => {
+      const channel = input.dataset.audioChannel as AudioChannel
+      const value = Number(input.value)
+      profile = { ...profile, audioLevels: { ...normalizeAudioLevels(profile.audioLevels), [channel]: value / 100 } }
+      audio.setLevels(profile.audioLevels!)
+      input.style.setProperty('--level', `${value}%`)
+      input.setAttribute('aria-valuetext', `${value}%`)
+      host.querySelector(`#audio-${channel}-value`)!.textContent = `${value}%`
+      // Keep this DOM and its focus stable throughout touch/keyboard slider gestures.
+      persistProfile()
+    })
+    input.addEventListener('change', () => {
+      if (canPreviewAudio() && ['effects', 'ui'].includes(input.dataset.audioChannel!)) audio.preview(input.dataset.audioChannel === 'ui' ? 'ui' : 'place')
+    })
+  })
+  host.querySelector<HTMLElement>('[data-audio-preview]')?.addEventListener('click', () => { if (canPreviewAudio()) audio.preview('place') })
+  host.querySelector<HTMLElement>('[data-audio-enable]')?.addEventListener('click', () => {
+    profile = { ...profile, muted: false }
+    audio.setMuted(false)
+    persistProfile()
+    host.querySelector<HTMLElement>('#audio-muted-note')!.hidden = true
+    if (canPreviewAudio()) audio.preview('place')
+  })
+  host.querySelector<HTMLElement>('[data-settings]')?.addEventListener('click', () => openModal('settings'))
   host.querySelectorAll<HTMLButtonElement>('[data-preview-zone]').forEach(button => button.addEventListener('click', () => {
     gardenPreview = button.dataset.previewZone as GardenZoneId
     renderModal()
@@ -1549,6 +1668,8 @@ async function startNewRun(mode: GameMode): Promise<void> {
   game = createGame(mode, mode === 'daily' ? currentChallenge() : null)
   finalized = false
   runSetNewBest = false
+  recordCelebrated = false
+  clearRecordCelebration()
   lastGain = 0
   particles = []
   effects = []
@@ -1634,14 +1755,32 @@ async function bootstrap(): Promise<void> {
   window.addEventListener('pointermove', movePieceDrag)
   window.addEventListener('pointerup', endPieceDrag)
   window.addEventListener('pointercancel', event => { if (event.pointerId === dragPointerId) cancelDrag() })
+  // Unlock only from real gestures; a saved unmuted preference must not trigger autoplay.
+  const unlockAudio = (event: Event): void => {
+    if (event.isTrusted && canPreviewAudio()) audio.unlock()
+  }
+  window.addEventListener('pointerdown', unlockAudio, { capture: true })
+  window.addEventListener('keydown', unlockAudio, { capture: true })
+  root.addEventListener('click', event => {
+    if (!(event.target instanceof Element)) return
+    const button = event.target.closest('button')
+    if (!event.isTrusted || !button || !canPreviewAudio() || button.matches('[data-audio-preview], [data-audio-enable], #sound-button')) return
+    if (!isPaused()) audio.play('ui')
+    else audio.preview('ui')
+  })
+  document.addEventListener('pointerdown', event => {
+    if (event.target instanceof Element && !event.target.closest('#stat-tip, [data-explain], #daily-button')) closeExplanation(false)
+  })
+  window.addEventListener('resize', positionExplanation)
   document.addEventListener('visibilitychange', () => syncActivity())
   window.addEventListener('blur', () => { windowFocused = false; syncActivity() })
   window.addEventListener('focus', () => { windowFocused = true; syncActivity() })
   window.addEventListener('pagehide', () => { if (game && !finalized) saveActiveRun() })
-  reducedMotion.addEventListener('change', () => { particles = []; effects = []; startParticleLoop() })
+  reducedMotion.addEventListener('change', () => { particles = []; effects = []; finishRollingNumbers(); startParticleLoop() })
   window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && tipOpener) { event.preventDefault(); closeExplanation(); return }
     if (modal && event.key === 'Tab') {
-      const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('.modal button:not(:disabled)'))
+      const buttons = Array.from(document.querySelectorAll<HTMLElement>('.modal button:not(:disabled), .modal input:not(:disabled), .modal a[href]')).filter(element => !element.closest('[hidden]'))
       if (!buttons.length) return
       const first = buttons[0], last = buttons[buttons.length - 1]
       if (!document.activeElement?.closest('.modal')) { event.preventDefault(); (event.shiftKey ? last : first).focus() }
@@ -1653,7 +1792,7 @@ async function bootstrap(): Promise<void> {
       else if (!modal && game?.status.startsWith('selecting-')) { game = {...game, status:'playing'}; hintKey = 'choosePiece'; saveActiveRun(); update() }
       else if (!modal) openModal('pause')
     }
-    if (!isPaused() && /^[123]$/.test(event.key)) {
+    if (!isPaused() && !tipOpener && /^[123]$/.test(event.key)) {
       selectPiece(Number(event.key) - 1)
       document.querySelector<HTMLElement>('#game-canvas')?.focus()
     }

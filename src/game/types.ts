@@ -1,3 +1,5 @@
+import type { AudioLevels } from '../audio-settings'
+
 /** The reference playfield is an intentionally compact 8×8 flower bed. */
 export const BOARD_SIZE = 8
 export const BLOOM_THRESHOLD = 4
@@ -51,6 +53,8 @@ export interface PlayerProgress {
   completedRuns: number
   lastInterstitialAt: number
   muted: boolean
+  /** Per-device listening preferences. Missing in legacy profiles. */
+  audioLevels?: AudioLevels
   /** Selected cosmetic scene; absent in legacy profiles. Never affects a run. */
   selectedGarden?: GardenZoneId
   /** Last explicit scene choice, used when merging local and cloud profiles. */

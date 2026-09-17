@@ -233,6 +233,8 @@ canvas { display: block; height: 100%; width: 100%; touch-action: none; border-r
 .piece-button .piece-grid { --unit: min(46px, calc(54px / var(--rows)), calc(160px / var(--columns))); }
 .cultivation-kit { min-width: 0; grid-template-columns: repeat(3,minmax(0,1fr)); }
 .game-layout, .stats-shell, .hand-section { min-width: 0; }
+.play-card { container-type: inline-size; }
+@media (min-height: 521px) { .canvas-wrap { max-height: 100cqw; } }
 @media (min-height: 521px) { .play-card { grid-template-columns: minmax(0,1fr); } }
 @media (max-width: 700px) and (min-height: 521px) { .game-layout { grid-template-columns: minmax(0,1fr); } }
 @media (max-width: 360px) { .score-card strong,.score-primary strong { font-size: 22px; } .nectar-card strong { font-size: 18px; } .score-card > span,.nectar-card > span { font-size: 9px; } .score-row { grid-template-columns: minmax(0,.8fr) minmax(0,.8fr) minmax(0,1fr) minmax(0,1.2fr); } }
@@ -501,6 +503,22 @@ canvas { display: block; height: 100%; width: 100%; touch-action: none; border-r
   .stat-label { font-size: 10px; } .stat-label .ui-icon, .stat-label > i { display: none; }
   .score-card { --stat-font: 23px; }
   .record-crown { width: 34px; height: 34px; } .record-celebration strong { font-size: 24px; } .record-celebration b { font-size: 34px; }
+  .app-shell { width: min(96%,calc(100dvh + 260px)); padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+  .game-layout { grid-template-rows: minmax(0,1fr) 36px; gap: 5px; }
+  .play-card { grid-template-columns: minmax(0,1fr) minmax(185px,38%); gap: 5px 10px; }
+  .side-panel { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 7px; }
+  .side-card,.leaderboard-card { padding: 0; border-radius: 12px; min-height: 36px; }
+  .side-card-heading,.daily-goal-label,#daily-score,.challenge-blooms,.daily-results,.greenhouse-sprouts,#zone-copy,.garden-mini-scene,.leaderboard-card small,.leaderboard-card > i { display: none; }
+  .daily-card .compact-button { height: 100%; width: 100%; border: 0; font: 700 12px Georgia,serif; background: none; color: #8b414a; box-shadow: none; padding: 5px; min-height: 0; }
+  .daily-card::after { display: none; }
+  .greenhouse-card::before { display: none; }
+  .garden-card-open { height: 100%; grid-template-columns: 20px auto; justify-content: center; gap: 5px; align-items: center; }
+  .garden-card-open > .ui-icon, .garden-card-open #zone-summary { display: none; }
+  .garden-card-open > span > strong { font: 700 12px Georgia,serif; }
+  .garden-card-open .leaf-icon .ui-icon { width: 20px; height: 20px; }
+  .leaderboard-card { display: flex; justify-content: center; gap: 5px; }
+  .leaderboard-card strong { font-size: 12px; }
+  .leaderboard-card > span .ui-icon { width: 20px; height: 20px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .record-celebration.is-visible { opacity: 1; transform: none; }

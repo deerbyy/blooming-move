@@ -122,6 +122,8 @@ function syncActivity(notifyPlatform = true): void {
   }
   if (notifyPlatform) platform.gameplay(inputReady && !signingIn && !modal && windowFocused && !document.hidden && game?.status !== 'finished')
   root.classList.toggle('is-paused', isPaused())
+  // Browsing the greenhouse pauses gameplay, not its decorative previews.
+  root.classList.toggle('atmosphere-paused', !inputReady || signingIn || !windowFocused || document.hidden || !!platform?.paused || modal === 'pause')
 }
 function playChime(kind: 'place' | 'line' | 'bloom' | 'dew' | 'prune'): void {
   if (isPaused() || profile.muted) return

@@ -14,8 +14,8 @@ function specks(count: number, kind: string, seed: number): string {
   return Array.from({ length: count }, (_, i) => {
     const x = (i * 37 + seed * 13) % 100
     const y = (i * 61 + seed * 7) % 100
-    const duration = kind === 'petal' ? 22 + i % 9 : 17 + i % 19
-    return `<i class="ambient-${kind}" style="--x:${x}%;--y:${y}%;--size:${kind === 'petal' ? 7 + i % 5 : 2 + i % 3}px;--duration:${duration}s;--delay:-${(i * 7.13 + seed) % duration}s;--drift:${18 + i % 7 * 7}px;--spin:${i * 43}deg"></i>`
+    const duration = kind === 'petal' ? 14 + i % 9 : 10 + i % 13
+    return `<i class="ambient-${kind}" style="--x:${x}%;--y:${y}%;--size:${kind === 'petal' ? 9 + i % 5 : 3 + i % 4}px;--duration:${duration}s;--delay:-${(i * 7.13 + seed) % duration}s;--drift:${28 + i % 7 * 9}px;--spin:${i * 43}deg"></i>`
   }).join('')
 }
 
@@ -33,9 +33,9 @@ export function gardenAtmosphere(zone: GardenZoneId): string {
   const lanterns = zone === 'moon' ? [[15, 54], [73, 54], [91, 60]] : zone === 'dome' ? [[3, 61]] : zone === 'rose' ? [[95, 59]] : []
   return `<div class="garden-atmosphere atmosphere-${zone}" aria-hidden="true"><div class="ambient-stage">
     ${leaves}<div class="ambient-light"><i></i><i></i></div>
-    <div class="ambient-motes">${specks(zone === 'moon' ? 24 : 34, 'dust', seed)}</div>
-    ${zone === 'rose' || zone === 'dome' ? `<div class="ambient-petals">${specks(7, 'petal', seed)}</div>` : ''}
     ${zone === 'moon' ? `<div class="ambient-snow">${specks(30, 'snowflake', seed)}</div>` : ''}
     ${water}${sparkle}${lanterns.map(([x, y], i) => `<i class="ambient-lantern" style="left:${x}%;top:${y}%;--delay:-${i * 1.6}s"></i>`).join('')}
-  </div></div>`
+  </div><div class="ambient-motes">${specks(40, 'dust', seed)}</div>
+    ${zone !== 'moon' ? `<div class="ambient-petals">${specks(zone === 'rose' ? 10 : 6, 'petal', seed)}</div>` : ''}
+  </div>`
 }

@@ -445,12 +445,14 @@ assert.equal(await page.locator('#game-canvas').getAttribute('data-preview-lines
 await page.waitForTimeout(220)
 await capture({path:'artifacts/qa/line.png'})
 await page.waitForTimeout(1300)
-for (const viewport of [{width:390,height:844},{width:320,height:568},{width:844,height:390},{width:1366,height:768}]) {
+for (const viewport of [{width:390,height:844},{width:320,height:568},{width:844,height:390},{width:640,height:360},{width:932,height:430},{width:768,height:1024},{width:1024,height:768},{width:1366,height:768},{width:1920,height:1080}]) {
   await page.setViewportSize(viewport)
   await page.waitForTimeout(100)
   await capture({path:`artifacts/qa/layout-${viewport.width}x${viewport.height}.png`})
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth || document.documentElement.scrollHeight > innerHeight),false)
-  for (const selector of ['canvas','#piece-hand','#bloom-button','#dew-button','#prune-button']) {
+  const boardRect = await page.locator('#game-canvas').boundingBox()
+  assert.ok(Math.abs(boardRect.width - boardRect.height) < 2, 'Board stays square on every viewport')
+  for (const selector of ['canvas','#piece-hand','#bloom-button','#dew-button','#prune-button','#garden-side-button']) {
     const r = await page.locator(selector).boundingBox()
     assert.ok(r && r.x >= 0 && r.y >= 0 && r.x+r.width <= viewport.width+1 && r.y+r.height <= viewport.height+1, `${selector} fits ${JSON.stringify({viewport,r})}`)
   }

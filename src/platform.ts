@@ -32,6 +32,7 @@ interface YandexSdk {
   }
   adv?: {
     showRewardedVideo: (options: { callbacks: AdCallbacks }) => void
+    showFullscreenAdv: (options: { callbacks: AdCallbacks }) => void
   }
   on?: (event: 'game_api_pause' | 'game_api_resume', callback: () => void) => void
 }
@@ -68,6 +69,7 @@ export interface PlatformAdapter {
   submitBestScore(score: number): Promise<void>
   getLeaderboard(): Promise<LeaderboardEntry[]>
   showRewarded(): Promise<boolean>
+  showInterstitial(): Promise<boolean>
 }
 
 class LocalPlatformAdapter implements PlatformAdapter {
@@ -95,6 +97,7 @@ class LocalPlatformAdapter implements PlatformAdapter {
   async submitBestScore(_score: number): Promise<void> {}
   async getLeaderboard(): Promise<LeaderboardEntry[]> { return [] }
   async showRewarded(): Promise<boolean> { return false }
+  async showInterstitial(): Promise<boolean> { return false }
 }
 
 class YandexPlatformAdapter implements PlatformAdapter {
@@ -112,6 +115,7 @@ class YandexPlatformAdapter implements PlatformAdapter {
   private pauseListeners = new Set<(paused: boolean) => void>()
   private signInRequest: Promise<boolean> | null = null
   private rewardedRequest: Promise<boolean> | null = null
+  private interstitialRequest: Promise<boolean> | null = null
   private cloudPending: PlayerProgress | null = null
   private cloudTimer: ReturnType<typeof setTimeout> | null = null
   private cloudWriting = false
@@ -350,6 +354,7 @@ class YandexPlatformAdapter implements PlatformAdapter {
 
   showRewarded(): Promise<boolean> {
     if (this.rewardedRequest) return this.rewardedRequest
+    if (this.interstitialRequest) return Promise.resolve(false)
     const adv = this.sdk.adv
     if (!adv?.showRewardedVideo) return Promise.resolve(false)
 
@@ -386,6 +391,51 @@ class YandexPlatformAdapter implements PlatformAdapter {
       this.rewardedRequest = null
     })
     return this.rewardedRequest
+  }
+
+  showInterstitial(): Promise<boolean> {
+    if (this.interstitialRequest) return this.interstitialRequest
+    if (this.rewardedRequest) return Promise.resolve(false)
+    const adv = this.sdk.adv
+    if (!adv?.showFullscreenAdv) return Promise.resolve(false)
+
+    // Fullscreen ads are only requested from a deliberate pause (for example,
+    // after tapping “New run”). The platform pause events still remain the
+    // source of truth if the SDK opens/closes the ad asynchronously.
+    const request = Promise.resolve().then(() => new Promise<boolean>((resolve) => {
+      let opened = false
+      let settled = false
+      this.adPaused = true
+      this.updatePause()
+      const finish = (shown: boolean) => {
+        if (settled) return
+        settled = true
+        this.adPaused = false
+        this.updatePause()
+        resolve(shown)
+      }
+      try {
+        adv.showFullscreenAdv({
+          callbacks: {
+            onOpen: () => {
+              if (!settled) {
+                opened = true
+                this.adPaused = true
+                this.updatePause()
+              }
+            },
+            onClose: (wasShown) => finish(wasShown === undefined ? opened : wasShown),
+            onError: () => finish(false)
+          }
+        })
+      } catch {
+        finish(false)
+      }
+    }))
+    this.interstitialRequest = request.finally(() => {
+      this.interstitialRequest = null
+    })
+    return this.interstitialRequest
   }
 
 }

@@ -153,6 +153,37 @@ describe('rewarded continuation', () => {
   })
 })
 
+describe('fullscreen interstitial', () => {
+  it('shares one in-flight request and resumes gameplay after a shown ad', async () => {
+    const { sdk, platform } = await setup()
+    platform.gameplay(true)
+    const first = platform.showInterstitial()
+    const second = platform.showInterstitial()
+    expect(second).toBe(first)
+    await Promise.resolve()
+    expect(sdk.adv.showFullscreenAdv).toHaveBeenCalledTimes(1)
+    const { callbacks } = sdk.adv.showFullscreenAdv.mock.calls[0][0]
+    callbacks.onOpen?.()
+    expect(sdk.features.GameplayAPI.stop).toHaveBeenCalledTimes(1)
+    callbacks.onClose?.(true)
+    await expect(first).resolves.toBe(true)
+    expect(sdk.features.GameplayAPI.start).toHaveBeenCalledTimes(2)
+  })
+
+  it('returns false for a no-fill close and releases the request', async () => {
+    const { sdk, platform } = await setup()
+    const first = platform.showInterstitial()
+    await Promise.resolve()
+    sdk.adv.showFullscreenAdv.mock.calls[0][0].callbacks.onClose?.(false)
+    await expect(first).resolves.toBe(false)
+    const retry = platform.showInterstitial()
+    await Promise.resolve()
+    expect(sdk.adv.showFullscreenAdv).toHaveBeenCalledTimes(2)
+    sdk.adv.showFullscreenAdv.mock.calls[1][0].callbacks.onError?.()
+    await expect(retry).resolves.toBe(false)
+  })
+})
+
 describe('SDK identity and persistence', () => {
   it('never treats a guest Player as authenticated after closing the auth dialog', async () => {
     const { sdk, platform } = await setup()

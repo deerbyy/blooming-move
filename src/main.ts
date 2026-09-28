@@ -88,6 +88,10 @@ let gardenPreview: GardenZoneId = selectedGardenZone(profile)
 let modalOpener: HTMLElement | null = null
 let earnedNectar = 0
 let unlockedThisRun = 0
+let nectarBoostPending = false
+let nectarBoostUsed = false
+let newRunPending = false
+const INTERSTITIAL_COOLDOWN_MS = 3 * 60 * 1000
 const audio = new GardenAudio()
 let recordCelebrated = false
 let recordTimer = 0
@@ -1544,7 +1548,10 @@ function renderModal(): void {
     host.innerHTML = modalMarkup(t('reviveTitle'), `<p>${t('reviveText')}</p><div class="modal-actions"><button class="secondary-button" data-finish>${t('finish')}</button><button class="primary-button" data-revive>${t('revive')}</button></div>`, true, false)
   } else if (modal === 'result') {
     const todayBest = state.mode === 'daily' ? `<p class="daily-result">${icon('calendar')} ${t('dayBest')}: <strong>${profile.dailyScores[state.challengeId!] ?? state.score}</strong></p>` : ''
-    host.innerHTML = modalMarkup(t('gameOver'), `<div class="result-score">${state.score}</div><p>${runSetNewBest ? t('newBest') : t('resultText')}</p>${todayBest}<button class="harvest-reward" data-result-garden>${icon('seed')}<span><strong>${t('nectar')}: +${earnedNectar}</strong><small>${unlockedThisRun ? t('newGardenZone') : t('visitGarden')}</small></span>${icon('arrow')}</button><div class="modal-actions"><button class="secondary-button" data-mode-open>${t('daily')}</button><button class="primary-button" data-restart>${t('restart')}</button></div>`, true, false)
+    const nectarBoost = !nectarBoostUsed && earnedNectar > 0
+      ? `<button class="ad-reward" data-double-nectar ${nectarBoostPending ? 'disabled' : ''}>${icon('seed')}<span><strong>${t('doubleNectar')}</strong><small>${t('doubleNectarHint')}</small></span></button>`
+      : ''
+    host.innerHTML = modalMarkup(t('gameOver'), `<div class="result-score">${state.score}</div><p>${runSetNewBest ? t('newBest') : t('resultText')}</p>${todayBest}<button class="harvest-reward" data-result-garden>${icon('seed')}<span><strong>${t('nectar')}: +${earnedNectar}</strong><small>${unlockedThisRun ? t('newGardenZone') : t('visitGarden')}</small></span>${icon('arrow')}</button>${nectarBoost}<div class="modal-actions"><button class="secondary-button" data-mode-open>${t('daily')}</button><button class="primary-button" data-restart>${t('restart')}</button></div>`, true, false)
   } else if (modal === 'controls') {
     host.innerHTML = modalMarkup(t('controls'), guideMarkup(platform.locale), true)
   }
@@ -1595,6 +1602,7 @@ function renderModal(): void {
     showToast(t('gardenApplied'))
   })
   host.querySelector<HTMLElement>('[data-result-garden]')?.addEventListener('click', () => openGarden())
+  host.querySelector<HTMLButtonElement>('[data-double-nectar]')?.addEventListener('click', () => void requestNectarBoost())
   host.querySelector<HTMLElement>('[data-help]')?.addEventListener('click', () => openModal('controls'))
   host.querySelector<HTMLElement>('[data-fullscreen]')?.addEventListener('click', () => { void platform.requestFullscreen(); closeModal() })
   document.querySelector<HTMLElement>('.game-layout')?.setAttribute('inert', '')
@@ -1607,7 +1615,7 @@ function renderModal(): void {
   })
   host.querySelector<HTMLElement>('[data-resume]')?.addEventListener('click', closeModal)
   host.querySelector<HTMLElement>('[data-mode-open]')?.addEventListener('click', () => openModal('modes'))
-  host.querySelector<HTMLElement>('[data-restart]')?.addEventListener('click', () => void startNewRun(state.mode))
+  host.querySelector<HTMLElement>('[data-restart]')?.addEventListener('click', () => void startNewRun(state.mode, { showInterstitial: true }))
   host.querySelectorAll<HTMLElement>('[data-mode]').forEach((button) => button.addEventListener('click', () => void switchMode(button.dataset.mode as GameMode)))
   host.querySelector<HTMLElement>('[data-finish]')?.addEventListener('click', finalizeRun)
   host.querySelector<HTMLElement>('[data-revive]')?.addEventListener('click', () => void requestRevive())
@@ -1655,6 +1663,30 @@ async function requestRevive(): Promise<void> {
   update()
 }
 
+async function requestNectarBoost(): Promise<void> {
+  if (nectarBoostPending || nectarBoostUsed || modal !== 'result' || earnedNectar <= 0) return
+  nectarBoostPending = true
+  const button = document.querySelector<HTMLButtonElement>('[data-double-nectar]')
+  if (button) button.disabled = true
+  const rewarded = await platform.showRewarded()
+  nectarBoostPending = false
+  if (!rewarded || modal !== 'result' || finalized === false) {
+    if (!rewarded) showToast(t('adUnavailable'))
+    update()
+    return
+  }
+  const before = profile.nectar
+  const previousZones = availableGardenZones(before).length
+  const bonus = earnedNectar
+  profile = { ...profile, nectar: before + bonus }
+  earnedNectar += bonus
+  nectarBoostUsed = true
+  unlockedThisRun = Math.max(unlockedThisRun, availableGardenZones(profile.nectar).length - previousZones)
+  persistProfile()
+  showToast(t('nectarDoubled'))
+  update()
+}
+
 async function switchMode(mode: GameMode): Promise<void> {
   const state = ensureGame()
   const sameChallenge = mode !== 'daily' || state.challengeId === currentChallenge()
@@ -1663,28 +1695,47 @@ async function switchMode(mode: GameMode): Promise<void> {
     return
   }
   if (state.status !== 'finished' && state.turn > 0 && !window.confirm(t('confirmNewRun'))) return
-  await startNewRun(mode)
+  await startNewRun(mode, { showInterstitial: true })
 }
 
-async function startNewRun(mode: GameMode): Promise<void> {
-  if (revivePending) return
-  game = createGame(mode, mode === 'daily' ? currentChallenge() : null)
-  finalized = false
-  runSetNewBest = false
-  recordCelebrated = false
-  clearRecordCelebration()
-  lastGain = 0
-  particles = []
-  effects = []
-  pulses = []
-  selectedPiece = null
-  reviveSelection = false
-  hintKey = 'choosePiece'
-  modal = null
-  saveActiveRun()
-  await platform.requestFullscreen()
-  syncActivity()
-  update()
+async function maybeShowInterstitial(): Promise<void> {
+  if (!platform.isYandex) return
+  const now = Date.now()
+  if (now - profile.lastInterstitialAt < INTERSTITIAL_COOLDOWN_MS) return
+  // Record the attempt as well as a successful fill. This prevents a no-fill
+  // SDK response from being retried on every rapid restart.
+  profile = { ...profile, lastInterstitialAt: now }
+  persistProfile()
+  await platform.showInterstitial()
+}
+
+async function startNewRun(mode: GameMode, options: { showInterstitial?: boolean } = {}): Promise<void> {
+  if (revivePending || newRunPending) return
+  newRunPending = true
+  try {
+    if (options.showInterstitial && finalized && game?.status === 'finished') await maybeShowInterstitial()
+    game = createGame(mode, mode === 'daily' ? currentChallenge() : null)
+    finalized = false
+    runSetNewBest = false
+    nectarBoostPending = false
+    nectarBoostUsed = false
+    recordCelebrated = false
+    clearRecordCelebration()
+    lastGain = 0
+    particles = []
+    effects = []
+    pulses = []
+    selectedPiece = null
+    reviveSelection = false
+    hintKey = 'choosePiece'
+    modal = null
+    saveActiveRun()
+    await platform.requestFullscreen()
+    syncActivity()
+    update()
+  } finally {
+    newRunPending = false
+  }
 }
 
 function finalizeRun(): void {

@@ -37,7 +37,10 @@ await page.addInitScript(() => {
     auth: { openAuthDialog: async () => { throw Error('cancelled') } },
     screen: { fullscreen: { request: async () => {} } },
     on: (name, fn) => { window.__events[name] = fn },
-    adv: { showRewardedVideo: ({callbacks}) => { window.__ad = callbacks; window.__calls.push('ad'); callbacks.onOpen() } }
+    adv: {
+      showRewardedVideo: ({callbacks}) => { window.__ad = callbacks; window.__calls.push('ad'); callbacks.onOpen() },
+      showFullscreenAdv: ({callbacks}) => { window.__fullAd = callbacks; window.__calls.push('fullAd'); callbacks.onOpen() }
+    }
   }) }
   const board = Array.from({length:8}, () => Array(8).fill('empty'))
   const boardColors = board.map(row => row.map(() => null))
@@ -592,6 +595,25 @@ await capture({path:'artifacts/qa/result.png'})
 assert.deepEqual(errors,[])
 console.log('PASS: garden tab focus restoration and bidirectional focus trap; result → modes/garden → result, one-time harvest, no finished-board escape.')
 
+// Optional monetization stays explicit: one cosmetic boost on the result, then
+// a fullscreen ad only after the player deliberately starts a new run.
+const earnedNectar = completedProfile.nectar - profileBeforeFinish.nectar
+assert.ok(earnedNectar > 0,'A completed run exposes a positive cosmetic nectar reward')
+assert.equal(await page.locator('[data-double-nectar]').count(),1,'The result screen offers one optional nectar boost')
+await page.locator('[data-double-nectar]').click()
+await page.evaluate(() => { window.__ad.onRewarded(); window.__ad.onClose() })
+await page.waitForFunction(() => document.querySelector('#toast')?.textContent.includes('Нектар удвоен'))
+const boostedProfile = await readProfile()
+assert.equal(boostedProfile.nectar,completedProfile.nectar + earnedNectar,'Rewarded nectar boost is granted exactly once')
+assert.equal(await page.locator('[data-double-nectar]').count(),0,'The nectar boost disappears after it is claimed')
+await page.locator('[data-restart]').click()
+await page.waitForFunction(() => window.__fullAd != null)
+assert.ok((await page.evaluate(() => window.__calls)).includes('fullAd'),'A deliberate new run requests a fullscreen ad')
+await page.evaluate(() => window.__fullAd.onClose(true))
+await page.waitForFunction(() => JSON.parse(localStorage.getItem('blooming-move:run:v1'))?.status === 'playing')
+assert.ok((await readProfile()).lastInterstitialAt > 0,'Interstitial cooldown is persisted before the request')
+assert.equal(await page.locator('.modal-result').count(),0,'The new run starts after the fullscreen ad closes')
+
 // A daily run may cross midnight; its result still belongs to the saved challenge ID.
 const todayChallenge = new Date().toISOString().slice(0,10)
 const previousChallenge = new Date(Date.now()-86400000).toISOString().slice(0,10)
@@ -604,7 +626,7 @@ const dailyResultFixture = {...beforeInputChecks,
 await page.evaluate(({profile,state}) => {
   sessionStorage.setItem('smoke-profile-fixture',JSON.stringify(profile))
   window.name = JSON.stringify(state)
-},{profile:{...completedProfile,dailyScores:{[previousChallenge]:2000,[todayChallenge]:9000}},state:dailyResultFixture})
+},{profile:{...boostedProfile,dailyScores:{[previousChallenge]:2000,[todayChallenge]:9000}},state:dailyResultFixture})
 await reload()
 await page.locator('[data-finish]').click()
 assert.equal(await page.locator('.daily-result strong').textContent(),'2000',

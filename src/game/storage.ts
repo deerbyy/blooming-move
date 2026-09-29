@@ -1,6 +1,7 @@
 import { resumeRun } from './engine'
 import { isAudioLevels, normalizeAudioLevels } from '../audio-settings'
 import { canSelectGardenZone, isGardenZoneId, selectedGardenZone } from './garden'
+import { canSelectFigureSkin, isFigureSkinId, normalizeRewardedAdsWatched, selectedFigureSkin } from './skins'
 import { BLOOM_THRESHOLD, BOARD_SIZE, type Cell, type GameState, type Piece, type PieceColor, type PlayerProgress, type RunStatus } from './types'
 
 const PROFILE_KEY = 'blooming-move:profile:v1'
@@ -19,7 +20,10 @@ export function defaultProgress(): PlayerProgress {
     muted: false,
     audioLevels: normalizeAudioLevels(undefined),
     selectedGarden: 'warm',
-    gardenSelectedAt: 0
+    gardenSelectedAt: 0,
+    rewardedAdsWatched: 0,
+    selectedSkin: 'classic',
+    skinSelectedAt: 0
   }
 }
 
@@ -67,6 +71,9 @@ export function isProgress(value: unknown): value is PlayerProgress {
     && (value.audioLevels === undefined || isAudioLevels(value.audioLevels))
     && (value.selectedGarden === undefined || isGardenZoneId(value.selectedGarden))
     && (value.gardenSelectedAt === undefined || isCounter(value.gardenSelectedAt))
+    && (value.rewardedAdsWatched === undefined || isCounter(value.rewardedAdsWatched))
+    && (value.selectedSkin === undefined || isFigureSkinId(value.selectedSkin))
+    && (value.skinSelectedAt === undefined || isCounter(value.skinSelectedAt))
     && isRecord(value.dailyScores)
     && Object.entries(value.dailyScores).every(([day, score]) => /^\d{4}-\d{2}-\d{2}$/.test(day) && isCounter(score))
 }
@@ -79,13 +86,19 @@ export function loadProgress(): PlayerProgress {
   candidate.audioLevels = normalizeAudioLevels(candidate.audioLevels)
   if (!isGardenZoneId(candidate.selectedGarden)) delete candidate.selectedGarden
   if (!isCounter(candidate.gardenSelectedAt)) delete candidate.gardenSelectedAt
+  candidate.rewardedAdsWatched = normalizeRewardedAdsWatched(candidate.rewardedAdsWatched)
+  if (!isFigureSkinId(candidate.selectedSkin)) delete candidate.selectedSkin
+  if (!isCounter(candidate.skinSelectedAt)) delete candidate.skinSelectedAt
   if (!isProgress(candidate)) return defaultProgress()
   const profile = { ...defaultProgress(), ...candidate }
   const selectedGarden = selectedGardenZone(profile)
+  const selectedSkin = selectedFigureSkin(profile)
   return {
     ...profile,
     selectedGarden,
-    gardenSelectedAt: canSelectGardenZone(candidate.nectar, candidate.selectedGarden) ? profile.gardenSelectedAt : 0
+    gardenSelectedAt: canSelectGardenZone(candidate.nectar, candidate.selectedGarden) ? profile.gardenSelectedAt : 0,
+    selectedSkin,
+    skinSelectedAt: canSelectFigureSkin(profile.rewardedAdsWatched, candidate.selectedSkin) ? profile.skinSelectedAt : 0
   }
 }
 
@@ -189,6 +202,17 @@ export function mergeProgress(local: PlayerProgress, cloud: PlayerProgress): Pla
   // Missing or locked cloud choices cannot undo a valid choice on this device.
   // At equal timestamps, keep the local selection so a sync never flickers.
   const selection = cloudSelectionValid && (!localSelectionValid || cloudSelectionAt > localSelectionAt) ? cloud : local
+  const rewardedAdsWatched = Math.max(
+    normalizeRewardedAdsWatched(local.rewardedAdsWatched),
+    normalizeRewardedAdsWatched(cloud.rewardedAdsWatched)
+  )
+  const localSkinValid = canSelectFigureSkin(rewardedAdsWatched, local.selectedSkin)
+  const cloudSkinValid = canSelectFigureSkin(rewardedAdsWatched, cloud.selectedSkin)
+  const localSkinAt = localSkinValid && isCounter(local.skinSelectedAt) ? local.skinSelectedAt : 0
+  const cloudSkinAt = cloudSkinValid && isCounter(cloud.skinSelectedAt) ? cloud.skinSelectedAt : 0
+  // As with garden scenes, only a valid explicit choice can win a merge.
+  // Equal timestamps retain the local choice to avoid selection flicker.
+  const skinSelection = cloudSkinValid && (!localSkinValid || cloudSkinAt > localSkinAt) ? cloud : local
   return {
     ...local,
     audioLevels: normalizeAudioLevels(local.audioLevels),
@@ -198,6 +222,9 @@ export function mergeProgress(local: PlayerProgress, cloud: PlayerProgress): Pla
     completedRuns: Math.max(local.completedRuns, cloud.completedRuns),
     lastInterstitialAt: Math.max(local.lastInterstitialAt, cloud.lastInterstitialAt),
     selectedGarden: selectedGardenZone(selection),
-    gardenSelectedAt: selection === cloud ? cloudSelectionAt : localSelectionAt
+    gardenSelectedAt: selection === cloud ? cloudSelectionAt : localSelectionAt,
+    rewardedAdsWatched,
+    selectedSkin: selectedFigureSkin({ rewardedAdsWatched, selectedSkin: skinSelection.selectedSkin }),
+    skinSelectedAt: skinSelection === cloud ? cloudSkinAt : localSkinAt
   }
 }

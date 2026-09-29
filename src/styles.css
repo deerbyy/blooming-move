@@ -279,6 +279,30 @@ canvas { display: block; height: 100%; width: 100%; touch-action: none; border-r
 .greenhouse-sprouts button.is-active::after { content: '✓'; position: absolute; right: 0; bottom: 0; font: 700 11px/15px Arial,sans-serif; width: 15px; height: 15px; border-radius: 50%; background: #486549; color: #fffbe4; }
 .greenhouse-sprouts button:hover { border-color: #95825f; }
 .modal-garden { width: min(100%,680px); }
+.garden-section-tabs { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; margin: 0 0 15px; }
+.garden-section-tabs button { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 39px; padding: 8px 10px; border: 1px solid #d8c6a7; border-radius: 11px; color: #617255; background: #e7d8c54d; font: 700 13px/1.1 Georgia,serif; transition: background .2s, border-color .2s, transform .2s; }
+.garden-section-tabs button:hover { border-color: #8d9b63; background: #f4ebc9; transform: translateY(-1px); }
+.garden-section-tabs button[aria-selected="true"] { color: #294d3a; border-color: #587550; background: #dce4b9; box-shadow: inset 0 0 0 2px #fffbea; }
+.garden-section-tabs .ui-icon { width: 19px; height: 19px; }
+.skin-summary { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0 0 7px; color: #51684e; }
+.skin-summary strong { font: 700 18px/1.15 Georgia,serif; color: #31533d; }
+.skin-summary small { color: #68775a; text-align: right; font-size: 11px; line-height: 1.35; }
+.skin-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; margin: 16px 0 13px; }
+.skin-card { position: relative; display: grid; grid-template-columns: 1fr; gap: 5px; min-width: 0; padding: 9px; overflow: hidden; text-align: left; border: 1px solid #d8c6a7; border-radius: 13px; color: #49634a; background: #fff6e2b5; transition: border-color .2s, background .2s, transform .2s, opacity .2s; }
+.skin-card:hover { border-color: #8d9b63; background: #f6efcf; transform: translateY(-1px); }
+.skin-card[aria-selected="true"] { border-color: #587550; background: #e6edc4; box-shadow: inset 0 0 0 2px #fffbea, 0 3px 10px #6e532119; }
+.skin-card.is-locked { opacity: .7; }
+.skin-card strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 14px/1.2 Georgia,serif; }
+.skin-card small { color: #728064; font-size: 10px; line-height: 1.2; }
+.skin-card-tiles { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 3px; width: 100%; }
+.skin-card-tile, .skin-detail-tiles i { display: block; aspect-ratio: 1; border-radius: 7px; background: center/cover no-repeat #d6dfbc; box-shadow: inset 0 0 0 1px #ffffff66; }
+.skin-card-progress { display: block; width: 0; height: 3px; border-radius: 5px; background: #82995d; transition: width .3s ease; }
+.skin-detail { padding-top: 2px; }
+.skin-detail-heading { display: grid; grid-template-columns: 126px minmax(0,1fr); gap: 13px; align-items: center; padding: 11px; border: 1px solid #d8c6a7; border-radius: 13px; background: #fff7e5b5; }
+.skin-detail-tiles { display: grid; grid-template-columns: repeat(5,1fr); gap: 3px; }
+.skin-detail-heading h3 { margin: 0; color: #31533d; font: 700 19px/1.15 Georgia,serif; }
+.skin-detail-heading p { margin: 5px 0 0; color: #68775a; font-size: 11px; line-height: 1.35; }
+.skin-watch { margin-top: 10px; }
 .garden-intro { margin: 0 0 16px; }
 .garden-tabs { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 8px; margin-bottom: 16px; }
 .garden-tabs button { padding: 8px 5px; min-height: 70px; border: 1px solid #d8c6a7; border-radius: 12px; color: #918771; background: #e7d8c54d; }
@@ -371,6 +395,15 @@ canvas { display: block; height: 100%; width: 100%; touch-action: none; border-r
   .garden-caption > span { font-size: 10px; }
   .garden-preview > p { margin: 8px 12px 12px; font-size: 12px; }
   .garden-intro { font-size: 13px !important; }
+  .garden-section-tabs { gap: 5px; }
+  .garden-section-tabs button { min-height: 36px; padding: 7px 5px; font-size: 12px; }
+  .skin-grid { gap: 7px; }
+  .skin-card { padding: 7px; }
+  .skin-detail-heading { grid-template-columns: 98px minmax(0,1fr); gap: 9px; padding: 9px; }
+  .skin-detail-heading h3 { font-size: 17px; }
+  .skin-summary { gap: 6px; }
+  .skin-summary strong { font-size: 15px; }
+  .skin-summary small { font-size: 10px; }
   .garden-unlock small { font-size: 10px; }
   .garden-apply, .garden-apply:disabled { font-size: 15px; padding: 11px; }
   .guide-steps { grid-template-columns: 1fr; gap: 20px; margin: 20px 0; }

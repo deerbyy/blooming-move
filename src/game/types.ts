@@ -8,6 +8,8 @@ export type Cell = 'empty' | 'leaf' | 'weed'
 export type PieceColor = 'coral' | 'sun' | 'mint' | 'violet' | 'sky'
 export type GameMode = 'standard' | 'daily'
 export type GardenZoneId = 'warm' | 'rose' | 'lily' | 'moon' | 'dome'
+/** Cosmetic flower treatment. It never changes the shape, colour or score. */
+export type FigureSkinId = 'classic' | 'rose' | 'orchid' | 'crystal' | 'lotus'
 export type RunStatus = 'playing' | 'selecting-bloom' | 'selecting-dew' | 'selecting-prune' | 'awaiting-revive' | 'finished'
 
 export interface Point {
@@ -59,6 +61,12 @@ export interface PlayerProgress {
   selectedGarden?: GardenZoneId
   /** Last explicit scene choice, used when merging local and cloud profiles. */
   gardenSelectedAt?: number
+  /** Number of successfully completed rewarded videos, shared by all ad rewards. */
+  rewardedAdsWatched?: number
+  /** Selected cosmetic treatment for the pieces; absent in legacy profiles. */
+  selectedSkin?: FigureSkinId
+  /** Last explicit skin choice, used when merging local and cloud profiles. */
+  skinSelectedAt?: number
 }
 
 export interface MoveResult {

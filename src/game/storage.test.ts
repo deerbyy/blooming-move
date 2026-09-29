@@ -167,6 +167,114 @@ describe('profile storage', () => {
     expect(merged).toMatchObject({ nectar: 1500, bestScore: 4000, selectedGarden: 'lily', gardenSelectedAt: 200 })
   })
 
+  it('loads legacy profiles with a classic skin and zero rewarded views', () => {
+    const legacy = { ...defaultProgress(), nectar: 740, bestScore: 2200 }
+    delete legacy.rewardedAdsWatched
+    delete legacy.selectedSkin
+    delete legacy.skinSelectedAt
+    stored.set(profileKey, JSON.stringify(legacy))
+    expect(loadProgress()).toMatchObject({
+      nectar: 740,
+      bestScore: 2200,
+      rewardedAdsWatched: 0,
+      selectedSkin: 'classic',
+      skinSelectedAt: 0
+    })
+  })
+
+  it('repairs malformed optional skin fields without resetting earned progress', () => {
+    stored.set(profileKey, JSON.stringify({
+      ...defaultProgress(),
+      nectar: 1700,
+      bestScore: 5400,
+      rewardedAdsWatched: -4,
+      selectedSkin: 'lotus',
+      skinSelectedAt: 'later'
+    }))
+    expect(loadProgress()).toMatchObject({
+      nectar: 1700,
+      bestScore: 5400,
+      rewardedAdsWatched: 0,
+      selectedSkin: 'classic',
+      skinSelectedAt: 0
+    })
+  })
+
+  it('round-trips an unlocked skin and its selection timestamp', () => {
+    const profile = {
+      ...defaultProgress(),
+      rewardedAdsWatched: 45,
+      selectedSkin: 'crystal' as const,
+      skinSelectedAt: 320
+    }
+    saveProgress(profile)
+    expect(loadProgress()).toEqual(profile)
+  })
+
+  it('merges the maximum successful rewarded count and newer valid skin choice', () => {
+    const local = {
+      ...defaultProgress(),
+      rewardedAdsWatched: 10,
+      selectedSkin: 'rose' as const,
+      skinSelectedAt: 100
+    }
+    const cloud = {
+      ...defaultProgress(),
+      rewardedAdsWatched: 45,
+      selectedSkin: 'crystal' as const,
+      skinSelectedAt: 200
+    }
+    expect(mergeProgress(local, cloud)).toMatchObject({
+      rewardedAdsWatched: 45,
+      selectedSkin: 'crystal',
+      skinSelectedAt: 200
+    })
+  })
+
+  it('does not let a locked cloud skin override a valid local selection', () => {
+    const local = {
+      ...defaultProgress(),
+      rewardedAdsWatched: 25,
+      selectedSkin: 'orchid' as const,
+      skinSelectedAt: 100
+    }
+    const cloud = {
+      ...defaultProgress(),
+      rewardedAdsWatched: 10,
+      selectedSkin: 'crystal' as const,
+      skinSelectedAt: 500
+    }
+    expect(mergeProgress(local, cloud)).toMatchObject({
+      rewardedAdsWatched: 25,
+      selectedSkin: 'orchid',
+      skinSelectedAt: 100
+    })
+  })
+
+  it('uses the merged count when a cloud reward unlocks the local selection', () => {
+    const local = {
+      ...defaultProgress(),
+      rewardedAdsWatched: 10,
+      selectedSkin: 'orchid' as const,
+      skinSelectedAt: 100
+    }
+    const cloud = { ...defaultProgress(), rewardedAdsWatched: 25 }
+    expect(mergeProgress(local, cloud)).toMatchObject({
+      rewardedAdsWatched: 25,
+      selectedSkin: 'orchid',
+      skinSelectedAt: 100
+    })
+  })
+
+  it.each([
+    { rewardedAdsWatched: -1 },
+    { rewardedAdsWatched: 1.5 },
+    { selectedSkin: 'unknown' },
+    { skinSelectedAt: 'bad' }
+  ])('rejects malformed optional fields in direct progress validation: %j', invalid => {
+    expect(isProgress({ ...defaultProgress(), ...invalid })).toBe(false)
+  })
+
   it('accepts a newer valid cloud selection', () => {
     const local = selectGardenZone({ ...defaultProgress(), nectar: 300 }, 'rose', 100)
     const cloud = selectGardenZone({ ...defaultProgress(), nectar: 1500 }, 'moon', 200)

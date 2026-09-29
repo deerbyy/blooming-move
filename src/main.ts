@@ -13,6 +13,7 @@ import { crossedPersonalBest } from './ui/record-milestone'
 import { beginBloom, beginDew, beginPrune, challengeIdFor, createGame, finishRun, placePiece, revive, useBloom, useDew, usePrune } from './game/engine'
 import { pieceBounds } from './game/shapes'
 import { clearRun, isProgress, loadProgress, loadRun, mergeProgress, saveProgress, saveRun } from './game/storage'
+import { canSelectFigureSkin, FIGURE_SKINS, figureSkin, figureSkinTexture, nextFigureSkinGoal, selectedFigureSkin, selectFigureSkin, type FigureSkinId } from './game/skins'
 import { BLOOM_THRESHOLD, BOARD_SIZE, type GameMode, type GameState, type Piece, type PieceColor, type Point } from './game/types'
 import { translator, type TranslationKey } from './i18n'
 import { createPlatform, type LeaderboardEntry, type PlatformAdapter } from './platform'
@@ -85,11 +86,14 @@ let lastGain = 0
 let finalized = false
 let runSetNewBest = false
 let gardenPreview: GardenZoneId = selectedGardenZone(profile)
+let gardenSection: 'garden' | 'skins' = 'garden'
+let skinPreview: FigureSkinId = selectedFigureSkin(profile)
 let modalOpener: HTMLElement | null = null
 let earnedNectar = 0
 let unlockedThisRun = 0
 let nectarBoostPending = false
 let nectarBoostUsed = false
+let skinWatchPending = false
 let newRunPending = false
 const INTERSTITIAL_COOLDOWN_MS = 3 * 60 * 1000
 const audio = new GardenAudio()
@@ -144,13 +148,9 @@ const boardTextures = {
   background: loadBoardTexture('art/board.webp'),
   cell: loadBoardTexture('art/cell.webp'),
   frame: loadBoardTexture('art/frame.webp'),
-  flowers: {
-    coral: loadBoardTexture('art/tile-coral.webp'),
-    sun: loadBoardTexture('art/tile-sun.webp'),
-    mint: loadBoardTexture('art/tile-mint.webp'),
-    violet: loadBoardTexture('art/tile-violet.webp'),
-    sky: loadBoardTexture('art/tile-sky.webp')
-  } as Record<PieceColor, HTMLImageElement>
+  flowers: Object.fromEntries(FIGURE_SKINS.map(skin => [skin.id, Object.fromEntries(
+    (['coral', 'sun', 'mint', 'violet', 'sky'] as PieceColor[]).map(color => [color, loadBoardTexture(figureSkinTexture(skin.id, color))])
+  )])) as Record<FigureSkinId, Record<PieceColor, HTMLImageElement>>
 }
 
 function loadBoardTexture(file: string): HTMLImageElement {
@@ -195,7 +195,8 @@ function modeName(mode: GameMode): string {
 
 function pieceMarkup(piece: Piece, index: number): string {
   const bounds = pieceBounds(piece)
-  const cells = piece.cells.map((cell) => `<i class="flower-tile tile-${piece.color}" style="grid-column:${cell.x + 1};grid-row:${cell.y + 1};--flower-phase:-${((index * 7 + cell.x * 3 + cell.y * 5) % 19) * .29}s;--flower-duration:${4.1 + ((index + cell.x + cell.y) % 5) * .35}s"></i>`).join('')
+  const skin = selectedFigureSkin(profile)
+  const cells = piece.cells.map((cell) => `<i class="flower-tile tile-${piece.color} skin-${skin}" style="grid-column:${cell.x + 1};grid-row:${cell.y + 1};background-image:url('${assetRoot}${figureSkinTexture(skin, piece.color)}');--flower-phase:-${((index * 7 + cell.x * 3 + cell.y * 5) % 19) * .29}s;--flower-duration:${4.1 + ((index + cell.x + cell.y) % 5) * .35}s"></i>`).join('')
   const selected = selectedPiece === index ? ' is-selected' : ''
   return `<button class="piece-button${selected}" data-piece="${index}" aria-pressed="${selectedPiece === index}" aria-label="${index + 1}: ${piece.cells.length} ${t('cells')}">
     <span class="piece-grid" style="--columns:${bounds.width};--rows:${bounds.height}">${cells}</span>
@@ -449,7 +450,8 @@ function renderDragGhost(): void {
     return
   }
   const bounds = pieceBounds(piece)
-  ghost.innerHTML = `<span class="piece-grid" style="--columns:${bounds.width};--rows:${bounds.height}">${piece.cells.map((cell) => `<i class="flower-tile tile-${piece.color}" style="grid-column:${cell.x + 1};grid-row:${cell.y + 1}"></i>`).join('')}</span>`
+  const skin = selectedFigureSkin(profile)
+  ghost.innerHTML = `<span class="piece-grid" style="--columns:${bounds.width};--rows:${bounds.height}">${piece.cells.map((cell) => `<i class="flower-tile tile-${piece.color} skin-${skin}" style="grid-column:${cell.x + 1};grid-row:${cell.y + 1};background-image:url('${assetRoot}${figureSkinTexture(skin, piece.color)}')"></i>`).join('')}</span>`
   ghost.style.left = `${dragPoint.x}px`
   ghost.style.top = `${dragPoint.y - 26}px`
   ghost.classList.add('is-visible')
@@ -694,6 +696,7 @@ function update(): void {
   const weedNote = document.querySelector<HTMLElement>('#weed-note')
   const toastElement = document.querySelector<HTMLElement>('#toast')
   const goal = nextGardenGoal(profile.nectar)
+  document.body.dataset.skin = selectedFigureSkin(profile)
   document.querySelector('.nectar-card')?.classList.toggle('has-goal', !!goal)
 
   const number = (value: number) => value.toLocaleString(platform.locale === 'ru' ? 'ru-RU' : 'en-US')
@@ -740,7 +743,7 @@ function update(): void {
   }
   if (pruneCharge) pruneCharge.textContent = state.pruneReady ? t('rowAndColumn') : t('pruneEarnShort')
   if (hand) {
-    const rackKey = JSON.stringify(state.pieces)
+    const rackKey = `${selectedFigureSkin(profile)}:${JSON.stringify(state.pieces)}`
     // Preserve focus, touch targets and animation phases while only selection changes.
     if (hand.dataset.rack !== rackKey) {
       hand.dataset.rack = rackKey
@@ -783,6 +786,7 @@ function update(): void {
 
 function openGarden(id = selectedGardenZone(profile)): void {
   gardenPreview = id
+  gardenSection = 'garden'
   openModal('garden')
 }
 
@@ -801,13 +805,49 @@ function renderGardenSidebar(selected: GardenZoneId, index: number): void {
   }
 }
 
+function gardenSectionTabs(): string {
+  return `<div class="garden-section-tabs" role="tablist" aria-label="${t('gardenTitle')}">
+    <button role="tab" aria-selected="${gardenSection === 'garden'}" data-garden-section="garden">${icon('glasshouse')}<span>${t('garden')}</span></button>
+    <button role="tab" aria-selected="${gardenSection === 'skins'}" data-garden-section="skins">${icon('bloom')}<span>${t('figureSkins')}</span></button>
+  </div>`
+}
+
+function skinModalContent(): string {
+  const count = profile.rewardedAdsWatched ?? 0
+  const active = selectedFigureSkin(profile)
+  const preview = figureSkin(skinPreview)
+  const unlocked = canSelectFigureSkin(count, skinPreview)
+  const goal = nextFigureSkinGoal(count)
+  const locale = platform.locale
+  const progress = goal ? Math.min(1, goal.current / Math.max(1, goal.required)) : 1
+  const cards = FIGURE_SKINS.map(skin => {
+    const isUnlocked = canSelectFigureSkin(count, skin.id)
+    const cardProgress = skin.requiredAds === 0 ? 1 : Math.min(1, count / skin.requiredAds)
+    const tiles = (['coral', 'sun', 'mint', 'violet', 'sky'] as PieceColor[]).map(color => `<i class="skin-card-tile" style="background-image:url('${assetRoot}${figureSkinTexture(skin.id, color)}')" aria-hidden="true"></i>`).join('')
+    return `<button class="skin-card${isUnlocked ? '' : ' is-locked'}" data-preview-skin="${skin.id}" aria-selected="${skin.id === skinPreview}" aria-label="${skin.name[locale]} — ${isUnlocked ? t('unlocked') : `${t('skinLocked')}: ${Math.max(0, skin.requiredAds - count)}`}" role="tab">
+      <span class="skin-card-tiles">${tiles}</span><strong>${skin.name[locale]}</strong><small>${isUnlocked ? t('skinAvailable') : `${Math.min(count, skin.requiredAds)}/${skin.requiredAds} ${t('ads')}`}</small>
+      <i class="skin-card-progress" style="width:${cardProgress * 100}%"></i>
+    </button>`
+  }).join('')
+  return `${gardenSectionTabs()}<p class="garden-intro">${t('skinIntro')}</p>
+    <div class="skin-summary"><strong>${t('skinAdsWatched')}: ${count}</strong><small>${goal ? `${t('nextSkin')}: ${goal.skin.name[locale]} · ${goal.current}/${goal.required}` : t('allSkinsUnlocked')}</small></div>
+    <div class="skin-unlock-track"><i style="width:${progress * 100}%"></i></div>
+    <div class="skin-grid" role="tablist" aria-label="${t('figureSkins')}">${cards}</div>
+    <section class="skin-detail" aria-live="polite">
+      <div class="skin-detail-heading"><span class="skin-detail-tiles">${(['coral', 'sun', 'mint', 'violet', 'sky'] as PieceColor[]).map(color => `<i style="background-image:url('${assetRoot}${figureSkinTexture(preview.id, color)}')" aria-hidden="true"></i>`).join('')}</span><div><h3>${preview.name[locale]}</h3><p>${preview.description[locale]}</p></div></div>
+      ${!unlocked ? `<button class="ad-reward skin-watch" data-watch-skin ${skinWatchPending || !goal ? 'disabled' : ''}>${icon('play')}<span><strong>${t('watchForSkin')}</strong><small>${goal ? `${goal.remaining} ${t('ads')} · ${t('skinAdsHint')}` : t('allSkinsUnlocked')}</small></span></button>` : ''}
+      <button class="primary-button garden-apply" data-apply-skin ${!unlocked || preview.id === active ? 'disabled' : ''}>${preview.id === active ? t('skinSelected') : unlocked ? t('applySkin') : t('skinLocked')}</button>
+    </section>`
+}
+
 function gardenModalContent(): string {
+  if (gardenSection === 'skins') return skinModalContent()
   const index = GARDEN_ZONES.findIndex(zone => zone.id === gardenPreview)
   const zone = GARDEN_ZONES[index]
   const unlocked = profile.nectar >= zone.nectar
   const active = selectedGardenZone(profile) === zone.id
   const progress = Math.min(1, profile.nectar / Math.max(1, zone.nectar))
-  return `<p class="garden-intro">${t('gardenText')}</p>
+  return `${gardenSectionTabs()}<p class="garden-intro">${t('gardenText')}</p>
     <div class="garden-tabs" role="tablist" aria-label="${t('garden')}">${GARDEN_ZONES.map((item,i) => `<button role="tab" aria-selected="${item.id === gardenPreview}" aria-controls="garden-preview" data-preview-zone="${item.id}" class="${profile.nectar >= item.nectar ? 'is-unlocked' : ''}"><span>${icon(profile.nectar >= item.nectar ? i < 2 ? 'seed' : 'bloom' : 'lock')}</span><small>${t('zone')} ${i+1}</small></button>`).join('')}</div>
     <section class="garden-preview" id="garden-preview" role="tabpanel" aria-label="${zoneNames[platform.locale][index]}">
       <div class="garden-scene">${gardenScene(index)}</div>
@@ -916,7 +956,7 @@ function plantPalette(variant: number): { petal: string; light: string; dark: st
 }
 
 function drawPlant(context: CanvasRenderingContext2D, x: number, y: number, cell: number, variant: number, scale = 1, alpha = 1, color?: PieceColor, angle = 0, lift = 0): void {
-  const flower = color ? boardTextures.flowers[color] : null
+  const flower = color ? boardTextures.flowers[selectedFigureSkin(profile)][color] : null
   if (flower?.complete && flower.naturalWidth) {
     context.save()
     context.globalAlpha = alpha
@@ -1595,6 +1635,27 @@ function renderModal(): void {
     renderModal()
     host.querySelector<HTMLElement>(`[data-preview-zone="${gardenPreview}"]`)?.focus()
   }))
+  host.querySelectorAll<HTMLButtonElement>('[data-garden-section]').forEach(button => button.addEventListener('click', () => {
+    gardenSection = button.dataset.gardenSection === 'skins' ? 'skins' : 'garden'
+    if (gardenSection === 'skins') skinPreview = selectedFigureSkin(profile)
+    renderModal()
+    host.querySelector<HTMLElement>(`[data-garden-section="${gardenSection}"]`)?.focus()
+  }))
+  host.querySelectorAll<HTMLButtonElement>('[data-preview-skin]').forEach(button => button.addEventListener('click', () => {
+    const id = button.dataset.previewSkin
+    if (!id || !FIGURE_SKINS.some(skin => skin.id === id)) return
+    skinPreview = id as FigureSkinId
+    renderModal()
+    host.querySelector<HTMLElement>(`[data-preview-skin="${skinPreview}"]`)?.focus()
+  }))
+  host.querySelector<HTMLButtonElement>('[data-watch-skin]')?.addEventListener('click', () => void requestSkinUnlock())
+  host.querySelector<HTMLButtonElement>('[data-apply-skin]')?.addEventListener('click', () => {
+    if (!canSelectFigureSkin(profile.rewardedAdsWatched, skinPreview)) return
+    profile = selectFigureSkin(profile, skinPreview)
+    persistProfile()
+    closeModal()
+    showToast(t('skinApplied'))
+  })
   host.querySelector<HTMLButtonElement>('[data-apply-garden]')?.addEventListener('click', () => {
     profile = selectGardenZone(profile, gardenPreview)
     persistProfile()
@@ -1648,7 +1709,7 @@ async function requestRevive(): Promise<void> {
   const waitingRun = game
   revivePending = true
   document.querySelectorAll<HTMLButtonElement>('[data-revive], [data-finish]').forEach(button => { button.disabled = true })
-  const rewarded = await platform.showRewarded()
+  const rewarded = await watchRewarded()
   revivePending = false
   if (game !== waitingRun || finalized) return
   if (!rewarded) {
@@ -1668,7 +1729,7 @@ async function requestNectarBoost(): Promise<void> {
   nectarBoostPending = true
   const button = document.querySelector<HTMLButtonElement>('[data-double-nectar]')
   if (button) button.disabled = true
-  const rewarded = await platform.showRewarded()
+  const rewarded = await watchRewarded()
   nectarBoostPending = false
   if (!rewarded || modal !== 'result' || finalized === false) {
     if (!rewarded) showToast(t('adUnavailable'))
@@ -1684,6 +1745,32 @@ async function requestNectarBoost(): Promise<void> {
   unlockedThisRun = Math.max(unlockedThisRun, availableGardenZones(profile.nectar).length - previousZones)
   persistProfile()
   showToast(t('nectarDoubled'))
+  update()
+}
+
+async function watchRewarded(): Promise<boolean> {
+  const rewarded = await platform.showRewarded()
+  if (!rewarded) return false
+  profile = { ...profile, rewardedAdsWatched: (profile.rewardedAdsWatched ?? 0) + 1 }
+  persistProfile()
+  return true
+}
+
+async function requestSkinUnlock(): Promise<void> {
+  if (skinWatchPending || modal !== 'garden' || gardenSection !== 'skins') return
+  const goal = nextFigureSkinGoal(profile.rewardedAdsWatched)
+  if (!goal) return
+  skinWatchPending = true
+  update()
+  const rewarded = await watchRewarded()
+  skinWatchPending = false
+  if (!rewarded) {
+    showToast(t('adUnavailable'))
+    update()
+    return
+  }
+  skinPreview = goal.skin.id
+  showToast(t('skinProgress'))
   update()
 }
 

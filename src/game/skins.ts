@@ -1,4 +1,4 @@
-import type { PieceColor, FigureSkinId, PlayerProgress } from './types'
+import type { GardenZoneId, PieceColor, FigureSkinId, PlayerProgress } from './types'
 export type { FigureSkinId } from './types'
 
 export type SkinLocale = 'ru' | 'en'
@@ -14,6 +14,8 @@ export interface FigureSkin {
   readonly requiredAds: number
   readonly name: FigureSkinText
   readonly description: FigureSkinText
+  /** Garden scene whose palette and motif inspired this cosmetic set. */
+  readonly gardenZone?: GardenZoneId
   /** Asset directory prefix, without the colour suffix or extension. */
   readonly textureBase: string
 }
@@ -34,29 +36,33 @@ export const FIGURE_SKINS: readonly FigureSkin[] = [
   {
     id: 'rose',
     requiredAds: 10,
-    name: { ru: 'Розовый сад', en: 'Rose garden' },
-    description: { ru: 'Нежные лепестки и мягкое сияние', en: 'Soft petals with a gentle glow' },
+    name: { ru: 'Розовая галерея', en: 'Rose gallery' },
+    description: { ru: 'Розетки лепестков для тёплой розовой галереи', en: 'Layered rose rosettes for the warm rose gallery' },
+    gardenZone: 'rose',
     textureBase: 'art/skins/rose'
   },
   {
     id: 'orchid',
     requiredAds: 25,
-    name: { ru: 'Орхидея', en: 'Orchid' },
-    description: { ru: 'Глубокие оттенки и бархатные лепестки', en: 'Deep colours and velvety petals' },
+    name: { ru: 'Букет под куполом', en: 'Dome bouquet' },
+    description: { ru: 'Объёмные соцветия для солнечного купола', en: 'Rounded florets for the sunny flower dome' },
+    gardenZone: 'dome',
     textureBase: 'art/skins/orchid'
   },
   {
     id: 'crystal',
     requiredAds: 45,
-    name: { ru: 'Хрустальный сад', en: 'Crystal garden' },
-    description: { ru: 'Светящиеся цветы с хрустальным блеском', en: 'Glowing flowers with a crystal shimmer' },
+    name: { ru: 'Иней и лунный свет', en: 'Frost and moonlight' },
+    description: { ru: 'Снежные края лепестков и жемчужный центр', en: 'Frosted petal tips and a pearly center' },
+    gardenZone: 'moon',
     textureBase: 'art/skins/crystal'
   },
   {
     id: 'lotus',
     requiredAds: 70,
-    name: { ru: 'Лотос', en: 'Lotus' },
-    description: { ru: 'Спокойный цветок утреннего пруда', en: 'A calm flower from the morning pond' },
+    name: { ru: 'Кувшинка', en: 'Water lily' },
+    description: { ru: 'Плоский цветок с листом пруда', en: 'A low bloom with a pond lily pad' },
+    gardenZone: 'lily',
     textureBase: 'art/skins/lotus'
   }
 ]

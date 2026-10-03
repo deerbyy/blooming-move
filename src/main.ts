@@ -144,23 +144,30 @@ function canPreviewAudio(): boolean {
 
 /** The supplied artwork stays independent from the game state, so cells can still animate separately. */
 const assetRoot = new URL('assets/', document.baseURI).toString()
+// Skin files keep stable names so saved selections remain valid. Bump this value
+// whenever the generated art is replaced so an already-open Yandex Games cache
+// picks up the new textures immediately.
+const SKIN_ASSET_VERSION = '2026-10-03-skins-2'
+function skinAsset(file: string): string {
+  return `${assetRoot}${file}?v=${SKIN_ASSET_VERSION}`
+}
 const boardTextures = {
   background: loadBoardTexture('art/board.webp'),
   cell: loadBoardTexture('art/cell.webp'),
   frame: loadBoardTexture('art/frame.webp'),
   flowers: Object.fromEntries(FIGURE_SKINS.map(skin => [skin.id, Object.fromEntries(
-    (['coral', 'sun', 'mint', 'violet', 'sky'] as PieceColor[]).map(color => [color, loadBoardTexture(figureSkinTexture(skin.id, color))])
+    (['coral', 'sun', 'mint', 'violet', 'sky'] as PieceColor[]).map(color => [color, loadBoardTexture(figureSkinTexture(skin.id, color), true)])
   )])) as Record<FigureSkinId, Record<PieceColor, HTMLImageElement>>
 }
 
-function loadBoardTexture(file: string): HTMLImageElement {
+function loadBoardTexture(file: string, cacheBust = false): HTMLImageElement {
   const image = new Image()
   image.decoding = 'async'
   texturePromises.push(new Promise<void>((resolve) => {
     image.addEventListener('load', () => { artworkRevision++; drawBoard(); resolve() }, { once: true })
     image.addEventListener('error', () => resolve(), { once: true })
   }))
-  image.src = `${assetRoot}${file}`
+  image.src = cacheBust ? skinAsset(file) : `${assetRoot}${file}`
   return image
 }
 
@@ -196,7 +203,7 @@ function modeName(mode: GameMode): string {
 function pieceMarkup(piece: Piece, index: number): string {
   const bounds = pieceBounds(piece)
   const skin = selectedFigureSkin(profile)
-  const cells = piece.cells.map((cell) => `<i class="flower-tile tile-${piece.color} skin-${skin}" style="grid-column:${cell.x + 1};grid-row:${cell.y + 1};background-image:url('${assetRoot}${figureSkinTexture(skin, piece.color)}');--flower-phase:-${((index * 7 + cell.x * 3 + cell.y * 5) % 19) * .29}s;--flower-duration:${4.1 + ((index + cell.x + cell.y) % 5) * .35}s"></i>`).join('')
+  const cells = piece.cells.map((cell) => `<i class="flower-tile tile-${piece.color} skin-${skin}" style="grid-column:${cell.x + 1};grid-row:${cell.y + 1};background-image:url('${skinAsset(figureSkinTexture(skin, piece.color))}');--flower-phase:-${((index * 7 + cell.x * 3 + cell.y * 5) % 19) * .29}s;--flower-duration:${4.1 + ((index + cell.x + cell.y) % 5) * .35}s"></i>`).join('')
   const selected = selectedPiece === index ? ' is-selected' : ''
   return `<button class="piece-button${selected}" data-piece="${index}" aria-pressed="${selectedPiece === index}" aria-label="${index + 1}: ${piece.cells.length} ${t('cells')}">
     <span class="piece-grid" style="--columns:${bounds.width};--rows:${bounds.height}">${cells}</span>
@@ -451,7 +458,7 @@ function renderDragGhost(): void {
   }
   const bounds = pieceBounds(piece)
   const skin = selectedFigureSkin(profile)
-  ghost.innerHTML = `<span class="piece-grid" style="--columns:${bounds.width};--rows:${bounds.height}">${piece.cells.map((cell) => `<i class="flower-tile tile-${piece.color} skin-${skin}" style="grid-column:${cell.x + 1};grid-row:${cell.y + 1};background-image:url('${assetRoot}${figureSkinTexture(skin, piece.color)}')"></i>`).join('')}</span>`
+  ghost.innerHTML = `<span class="piece-grid" style="--columns:${bounds.width};--rows:${bounds.height}">${piece.cells.map((cell) => `<i class="flower-tile tile-${piece.color} skin-${skin}" style="grid-column:${cell.x + 1};grid-row:${cell.y + 1};background-image:url('${skinAsset(figureSkinTexture(skin, piece.color))}')"></i>`).join('')}</span>`
   ghost.style.left = `${dragPoint.x}px`
   ghost.style.top = `${dragPoint.y - 26}px`
   ghost.classList.add('is-visible')
@@ -819,11 +826,14 @@ function skinModalContent(): string {
   const unlocked = canSelectFigureSkin(count, skinPreview)
   const goal = nextFigureSkinGoal(count)
   const locale = platform.locale
+  const themeName = preview.gardenZone
+    ? zoneNames[locale][GARDEN_ZONES.findIndex(zone => zone.id === preview.gardenZone)]
+    : ''
   const progress = goal ? Math.min(1, goal.current / Math.max(1, goal.required)) : 1
   const cards = FIGURE_SKINS.map(skin => {
     const isUnlocked = canSelectFigureSkin(count, skin.id)
     const cardProgress = skin.requiredAds === 0 ? 1 : Math.min(1, count / skin.requiredAds)
-    const tiles = (['coral', 'sun', 'mint', 'violet', 'sky'] as PieceColor[]).map(color => `<i class="skin-card-tile" style="background-image:url('${assetRoot}${figureSkinTexture(skin.id, color)}')" aria-hidden="true"></i>`).join('')
+    const tiles = (['coral', 'sun', 'mint', 'violet', 'sky'] as PieceColor[]).map(color => `<i class="skin-card-tile" style="background-image:url('${skinAsset(figureSkinTexture(skin.id, color))}')" aria-hidden="true"></i>`).join('')
     return `<button class="skin-card${isUnlocked ? '' : ' is-locked'}" data-preview-skin="${skin.id}" aria-selected="${skin.id === skinPreview}" aria-label="${skin.name[locale]} — ${isUnlocked ? t('unlocked') : `${t('skinLocked')}: ${Math.max(0, skin.requiredAds - count)}`}" role="tab">
       <span class="skin-card-tiles">${tiles}</span><strong>${skin.name[locale]}</strong><small>${isUnlocked ? t('skinAvailable') : `${Math.min(count, skin.requiredAds)}/${skin.requiredAds} ${t('ads')}`}</small>
       <i class="skin-card-progress" style="width:${cardProgress * 100}%"></i>
@@ -834,7 +844,7 @@ function skinModalContent(): string {
     <div class="skin-unlock-track"><i style="width:${progress * 100}%"></i></div>
     <div class="skin-grid" role="tablist" aria-label="${t('figureSkins')}">${cards}</div>
     <section class="skin-detail" aria-live="polite">
-      <div class="skin-detail-heading"><span class="skin-detail-tiles">${(['coral', 'sun', 'mint', 'violet', 'sky'] as PieceColor[]).map(color => `<i style="background-image:url('${assetRoot}${figureSkinTexture(preview.id, color)}')" aria-hidden="true"></i>`).join('')}</span><div><h3>${preview.name[locale]}</h3><p>${preview.description[locale]}</p></div></div>
+      <div class="skin-detail-heading"><span class="skin-detail-tiles">${(['coral', 'sun', 'mint', 'violet', 'sky'] as PieceColor[]).map(color => `<i style="background-image:url('${skinAsset(figureSkinTexture(preview.id, color))}')" aria-hidden="true"></i>`).join('')}</span><div><h3>${preview.name[locale]}</h3><p>${preview.description[locale]}</p>${themeName ? `<small class="skin-detail-theme">${t('skinTheme')}: ${themeName}</small>` : ''}</div></div>
       ${!unlocked ? `<button class="ad-reward skin-watch" data-watch-skin ${skinWatchPending || !goal ? 'disabled' : ''}>${icon('play')}<span><strong>${t('watchForSkin')}</strong><small>${goal ? `${goal.remaining} ${t('ads')} · ${t('skinAdsHint')}` : t('allSkinsUnlocked')}</small></span></button>` : ''}
       <button class="primary-button garden-apply" data-apply-skin ${!unlocked || preview.id === active ? 'disabled' : ''}>${preview.id === active ? t('skinSelected') : unlocked ? t('applySkin') : t('skinLocked')}</button>
     </section>`

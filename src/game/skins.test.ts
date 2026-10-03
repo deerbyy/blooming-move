@@ -23,6 +23,15 @@ describe('cosmetic figure skins', () => {
     ])
   })
 
+  it('keeps each themed skin paired with its matching garden scene', () => {
+    expect(Object.fromEntries(FIGURE_SKINS.filter(skin => skin.gardenZone).map(skin => [skin.id, skin.gardenZone]))).toEqual({
+      rose: 'rose',
+      orchid: 'dome',
+      crystal: 'moon',
+      lotus: 'lily'
+    })
+  })
+
   it.each([[0, 1], [9, 1], [10, 2], [24, 2], [25, 3], [44, 3], [45, 4], [69, 4], [70, 5], [999, 5]])(
     'unlocks only the earned skins at %i rewarded views', (count, expected) => {
       expect(availableFigureSkins(count)).toHaveLength(expected)

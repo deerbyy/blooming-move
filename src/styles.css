@@ -302,6 +302,7 @@ canvas { display: block; height: 100%; width: 100%; touch-action: none; border-r
 .skin-detail-tiles { display: grid; grid-template-columns: repeat(5,1fr); gap: 3px; }
 .skin-detail-heading h3 { margin: 0; color: #31533d; font: 700 19px/1.15 Georgia,serif; }
 .skin-detail-heading p { margin: 5px 0 0; color: #68775a; font-size: 11px; line-height: 1.35; }
+.skin-detail-theme { display: block; margin-top: 6px; color: #8a7656; font-size: 10px; line-height: 1.25; }
 .skin-watch { margin-top: 10px; }
 .garden-intro { margin: 0 0 16px; }
 .garden-tabs { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 8px; margin-bottom: 16px; }
